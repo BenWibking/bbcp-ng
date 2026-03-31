@@ -28,13 +28,15 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <openssl/evp.h>
+#include <openssl/hmac.h>
+#include <openssl/sha.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include "bbcp_Config.h"
 #include "bbcp_Emsg.h"
 #include "bbcp_Headers.h"
-#include "bbcp_MD5.h"
 #include "bbcp_Network.h"
 #include "bbcp_Node.h"
 #include "bbcp_Protocol.h"
@@ -109,20 +111,22 @@ int bbcp_GenNonce(char *outbuff, size_t outlen)
 int bbcp_MakeAuthProof(const char *id, const char *nonce, char *outbuff,
                        size_t outlen)
 {
-   bbcp_MD5 md5;
-   char    *mdtext;
+   unsigned char md[EVP_MAX_MD_SIZE];
+   unsigned int  mdlen = 0;
+   char          inbuff[160];
+   int           inlen;
 
-   if (outlen < 33) return -EINVAL;
-   md5.Init();
-   md5.Update(bbcp_AuthLabel, strlen(bbcp_AuthLabel));
-   md5.Update(":", 1);
-   md5.Update(id, strlen(id));
-   md5.Update(":", 1);
-   md5.Update(nonce, strlen(nonce));
-   md5.Update(":", 1);
-   md5.Update(bbcp_Config.SecToken, strlen(bbcp_Config.SecToken));
-   md5.Final(&mdtext);
-   strcpy(outbuff, mdtext);
+   if (outlen < SHA256_DIGEST_LENGTH*2+1) return -EINVAL;
+   inlen = snprintf(inbuff, sizeof(inbuff), "%s:%s:%s",
+                    bbcp_AuthLabel, id, nonce);
+   if (inlen < 0 || inlen >= (int)sizeof(inbuff)) return -EOVERFLOW;
+
+   if (!HMAC(EVP_sha256(), bbcp_Config.SecToken, strlen(bbcp_Config.SecToken),
+             (unsigned char *)inbuff, inlen, md, &mdlen))
+      return -EIO;
+
+   if (mdlen != SHA256_DIGEST_LENGTH) return -EIO;
+   bbcp_tohex(md, mdlen, outbuff);
    return 0;
 }
 };

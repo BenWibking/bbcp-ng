@@ -83,30 +83,18 @@ bbcp_Buffer *last_empty;
 };
 
 /******************************************************************************/
-/*                     C l a s s   b b c p _ H e a d c s                      */
-/******************************************************************************/
-
-struct bbcp_Headcs
-      {union {long long lVal[2];
-              int       iVal[2];
-              short     sVal[2];
-              char      cVal[2];
-             };
-      };
-
-/******************************************************************************/
 /*                     C l a s s   b b c p _ H e a d e r                      */
 /******************************************************************************/
 
   
 struct bbcp_Header
       {char cmnd;          // Command
-       char hdcs;          // Header checksum
+       char hdcs;          // Truncated header digest
        char flgs;          // Flags
        char rsv1;          // Reserved
        char blen[4];       // int       buffer length
        char boff[8];       // Long long buffer offset
-       char cksm[16];      // MD5 check sum (optional)
+       char cksm[32];      // SHA-256 check sum (optional)
        bbcp_Header() {bzero(cksm, sizeof(cksm));}
       ~bbcp_Header() {}
        };

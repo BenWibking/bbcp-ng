@@ -66,7 +66,7 @@ bbcp_Link::bbcp_Link(int fd, const char *lname)
           : LinkNum(0), Buddy(0),  Rendezvous(0), IOB(fd), Lname(strdup(lname))
 {
    csObj = (bbcp_Config.csOpts & bbcp_csLink
-         ? bbcp_ChkSum::Alloc(bbcp_Config.csType?bbcp_Config.csType:bbcp_csMD5)
+         ? bbcp_ChkSum::Alloc(bbcp_Config.csType?bbcp_Config.csType:bbcp_csSHA256)
          : 0);
 }
   

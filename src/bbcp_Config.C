@@ -172,8 +172,8 @@ bbcp_Config::bbcp_Config()
    TimeLimit = 0;
    MTLevel   = 0;
    csOpts    = 0;
-   csSize    = 16;
-   csType    = bbcp_csMD5;
+   csSize    = 32;
+   csType    = bbcp_csSHA256;
    csSpec    = 0;
   *csString  = 0;
    csPath    = 0;
@@ -702,9 +702,9 @@ H("-c lvl  compress data before sending across the network (default lvl is 1).")
 H("-C cfn  process the named configuration file at time of encounter.")
 H("-d path requests relative source path addressing and target path creation.")
 H("-D      turns on debugging.")
-H("-e      error check data for transmission errors using md5 checksum.")
+H("-e      error check data for transmission errors using sha256 checksum.")
 H("-E csa  specify checksum alorithm and optionally report or verify checksum.")
-H("        csa: [%]{a32|c32|md5}[=[<value> | <outfile>]]")
+H("        csa: [%]{sha256}[=[<value> | <outfile>]]")
 H("-f      forces the copy by first unlinking the target file before copying.")
 H("-F      does not check to see if there is enough space on the target node.")
 H("-g      do a gross copy (i.e. copy even if there are no directory entries).")
@@ -1313,9 +1313,7 @@ int bbcp_Config::EOpts(char *opts)
    csLen = strlen(opts);
    if (csLen >= (int)sizeof(csName)) *csName = 0;
       else memcpy(csName, opts, csLen+1);
-        if (!strcmp("a32", csName)) {csType = bbcp_csA32; csSize =  4;}
-   else if (!strcmp("c32", csName)) {csType = bbcp_csC32; csSize =  4;}
-   else if (!strcmp("md5", csName)) {csType = bbcp_csMD5; csSize = 16;}
+        if (!strcmp("sha256", csName)) {csType = bbcp_csSHA256; csSize = 32;}
    else {bbcp_Fmsg("Config", "Invalid checksum type -", opts); return -1;}
 
 // Verify the checksum value if one was actually specified

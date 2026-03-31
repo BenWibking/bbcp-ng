@@ -106,16 +106,14 @@ int           csOpts;
 int           csSize;
 int           csType;
 #define bbcp_csNOP    0
-#define bbcp_csA32    1
-#define bbcp_csC32    2
-#define bbcp_csMD5    3
+#define bbcp_csSHA256 3
 
 int           csFD;
 char         *csPath;
 char         *csSpec;
 char          csName[8];
-char          csValue[16];
-char          csString[44];
+char          csValue[32];
+char          csString[68];
 
 char          ubSpec[4];
 char          upSpec[4];

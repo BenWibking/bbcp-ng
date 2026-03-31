@@ -68,6 +68,6 @@ virtual            ~bbcp_ChkSum() {}
 protected:
 char *x2a(char *inX);
 
-char csBuff[40];
+char csBuff[80];
 };
 #endif

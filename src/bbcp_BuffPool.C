@@ -27,7 +27,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 #include <inttypes.h>
+#include <openssl/evp.h>
 #include <sys/mman.h>
 
 #if defined(MACOS) || defined(AIX)
@@ -51,6 +53,23 @@
 bbcp_BuffPool bbcp_APool("disk");
 bbcp_BuffPool bbcp_BPool;
 bbcp_BuffPool bbcp_CPool("C");
+
+namespace
+{
+char bbcp_HeaderDigest(const bbcp_Header *hp)
+{
+   bbcp_Header hcopy = *hp;
+   unsigned char md[EVP_MAX_MD_SIZE];
+   unsigned int mdLen = 0;
+   size_t hdrLen = offsetof(bbcp_Header, cksm);
+
+   hcopy.hdcs = 0;
+   if (hp->cmnd == (char)BBCP_CLCKS) hdrLen += sizeof(hcopy.cksm);
+   if (!EVP_Digest(&hcopy, hdrLen, md, &mdLen, EVP_sha256(), 0) || !mdLen)
+      return 0;
+   return (char)md[0];
+}
+}
   
 /******************************************************************************/
 /*                           c o n s t r u c t o r                            */
@@ -352,23 +371,11 @@ int  bbcp_BuffPool::Decode(bbcp_Buffer *bp)
 {
      USBUFF;
      bbcp_Header *hp = &bp->bHdr;
-     bbcp_Headcs *cP = (bbcp_Headcs *)hp, csData;
-     char hdcs = 0;
-     int n;
 
-// If a checksum was calculate (backward compatability) verify it (it should
-// result in a zero after xoring all the bytes in the header including chksum).
+// Verify the OpenSSL-backed header digest.
 //
    if (hp->flgs & BBCP_HDCS)
-      {n = (hp->cmnd == (char)BBCP_CLCKS ? 1 : 0);
-       do {csData.lVal[0]  = cP->lVal[0] ^ cP->lVal[1];
-           csData.iVal[0] ^= csData.iVal[1];
-           csData.sVal[0] ^= csData.sVal[1];
-           hdcs ^= (csData.cVal[0] ^ csData.cVal[1]);
-           cP = (bbcp_Headcs *)hp->cksm;
-          } while(n--);
-       if (hdcs) return 0;
-      }
+      {if (hp->hdcs != bbcp_HeaderDigest(hp)) return 0;}
 
 // Extract out the length
 //
@@ -388,9 +395,6 @@ void bbcp_BuffPool::Encode(bbcp_Buffer *bp, char xcmnd)
 {
      USBUFF;
      bbcp_Header *hp = &bp->bHdr;
-     bbcp_Headcs *cP = (bbcp_Headcs *)hp, csData;
-     char hdcs = 0;
-     int n = (xcmnd == (char)BBCP_CLCKS ? 1 : 0);
 
 // Set the command
 //
@@ -404,19 +408,9 @@ void bbcp_BuffPool::Encode(bbcp_Buffer *bp, char xcmnd)
 //
    SerLL(bp->boff, hp->boff);
 
-// Calculate an xor checksum of the header (order independent). We iterate
-// twice if we need to include the data checksum in the header checksum.
+// Calculate a header digest using OpenSSL and store its first byte.
 //
    hp->hdcs = 0;
    hp->flgs |= BBCP_HDCS;
-   do {csData.lVal[0]  = cP->lVal[0] ^ cP->lVal[1];
-       csData.iVal[0] ^= csData.iVal[1];
-       csData.sVal[0] ^= csData.sVal[1];
-       hdcs ^= (csData.cVal[0] ^ csData.cVal[1]);
-       cP = (bbcp_Headcs *)hp->cksm;
-      } while(n--);
-
-// Set the header checksum in the header
-//
-   hp->hdcs  = hdcs;
+   hp->hdcs  = bbcp_HeaderDigest(hp);
 }

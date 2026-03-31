@@ -11,6 +11,9 @@ OBJDIR     = ../obj/$(OSVER)
 ENVCFLAGS  =    -Dunix -D_BSD -D_ALL_SOURCE
 
 ENVINCLUDE = -I. -I/usr/local/include -I/usr/include 
+OPENSSL_PREFIX ?= $(shell test -x "$$(command -v openssl)" && dirname $$(dirname $$(command -v openssl)))
+OPENSSL_INCLUDE = $(if $(OPENSSL_PREFIX),-I$(OPENSSL_PREFIX)/include,)
+OPENSSL_LIBDIR  = $(if $(OPENSSL_PREFIX),-L$(OPENSSL_PREFIX)/lib,)
 
 AIXLIBS    =  -q64 -L/usr/lib -lz -lpthreads
 
@@ -76,7 +79,6 @@ SOURCE =      \
      bbcp.C \
      bbcp_Args.C \
      bbcp_BuffPool.C \
-     bbcp_C32.C \
      bbcp_ChkSum.C \
      bbcp_Config.C \
      bbcp_Emsg.C \
@@ -91,8 +93,6 @@ SOURCE =      \
      bbcp_IO_Pipe.C \
      bbcp_Link.C \
      bbcp_LogFile.C \
-     bbcp_MD5.C \
-     bbcp_MD5_openssl.C \
      bbcp_NetAddr.C \
      bbcp_NetAddrInfo.C \
      bbcp_NetLogger.C \
@@ -115,7 +115,6 @@ OBJECT =      \
      $(OBJDIR)/bbcp.o \
      $(OBJDIR)/bbcp_Args.o \
      $(OBJDIR)/bbcp_BuffPool.o \
-     $(OBJDIR)/bbcp_C32.o \
      $(OBJDIR)/bbcp_ChkSum.o \
      $(OBJDIR)/bbcp_Config.o \
      $(OBJDIR)/bbcp_Emsg.o \
@@ -130,8 +129,6 @@ OBJECT =      \
      $(OBJDIR)/bbcp_IO_Pipe.o \
      $(OBJDIR)/bbcp_Link.o \
      $(OBJDIR)/bbcp_LogFile.o \
-     $(OBJDIR)/bbcp_MD5.o \
-     $(OBJMD5) \
      $(OBJDIR)/bbcp_NetLogger.o \
      $(OBJDIR)/bbcp_NetAddr.o \
      $(OBJDIR)/bbcp_NetAddrInfo.o \
@@ -191,16 +188,14 @@ FreeBSD:
 	LIBS="$(BSDLIBS)"
 
 Linux:
-	@make makeLinux`/bin/uname -i` \
-	MD5HEADER=bbcp_MD5_openssl.h \
-	OBJMD5="$(OBJDIR)/bbcp_MD5_openssl.o"
+	@make makeLinux`/bin/uname -i`
 
 makeLinuxi386:
 	@make $(MKPARMS)  \
 	CC=$(LNXCC) \
 	BB=$(LNXcc) \
-	CFLAGS="$(ENVCFLAGS) $(LNXOPT) -DUSE_OPENSSL_MD5" \
-	BFLAGS="$(ENVCFLAGS) $(LNXOPT_B) -DUSE_OPENSSL_MD5" \
+	CFLAGS="$(ENVCFLAGS) $(LNXOPT)" \
+	BFLAGS="$(ENVCFLAGS) $(LNXOPT_B)" \
 	INCLUDE="$(ENVINCLUDE)" \
 	LIBS="$(LNXLIBS32)"
 
@@ -208,8 +203,8 @@ makeLinuxx86_64:
 	@make $(MKPARMS) RR=$(RELNUM) \
 	CC=$(LNXCC) \
 	BB=$(LNXcc) \
-	CFLAGS="$(ENVCFLAGS) $(LNXOPT) -DUSE_OPENSSL_MD5" \
-	BFLAGS="$(ENVCFLAGS) $(LNXOPT_B) -DUSE_OPENSSL_MD5" \
+	CFLAGS="$(ENVCFLAGS) $(LNXOPT)" \
+	BFLAGS="$(ENVCFLAGS) $(LNXOPT_B)" \
 	INCLUDE="$(ENVINCLUDE)" \
 	LIBS="$(LNXLIBS64)"
 
@@ -219,16 +214,16 @@ Darwin:
 	CC=$(MACCC) \
 	BB=$(MACcc) \
 	CFLAGS="$(ENVCFLAGS) $(MACOPT) $(OPT)" \
-	INCLUDE="$(ENVINCLUDE)" \
-	LIBS="-dynamic -L/usr/lib -lz -lpthread"
+	INCLUDE="$(ENVINCLUDE) $(OPENSSL_INCLUDE)" \
+	LIBS="-dynamic $(OPENSSL_LIBDIR) -L/usr/lib -lz -lpthread -lcrypto"
 
 
 UNICOS/mp:
 	@make $(MKPARMS)  \
 	CC=$(LNXCC) \
 	BB=$(LNXcc) \
-	CFLAGS="$(ENVCFLAGS) $(LNXOPT) -DUSE_OPENSSL_MD5" \
-	BFLAGS="$(ENVCFLAGS) $(LNXOPT_B) -DUSE_OPENSSL_MD5" \
+	CFLAGS="$(ENVCFLAGS) $(LNXOPT)" \
+	BFLAGS="$(ENVCFLAGS) $(LNXOPT_B)" \
 	INCLUDE="$(ENVINCLUDE)" \
 	LIBS="$(LNXLIBS)"
 
@@ -276,12 +271,8 @@ $(OBJDIR)/bbcp_BuffPool.o: bbcp_BuffPool.C bbcp_BuffPool.h bbcp_Debug.h \
 	@echo Compiling bbcp_BuffPool.C
 	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
 
-$(OBJDIR)/bbcp_C32.o: bbcp_C32.C bbcp_C32.h bbcp_ChkSum.h bbcp_Endian.h
-	@echo Compiling bbcp_C32.C
-	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
-
 $(OBJDIR)/bbcp_ChkSum.o: bbcp_ChkSum.C bbcp_ChkSum.h bbcp_Endian.h \
-                         bbcp_A32.h bbcp_A32_zlib.h bbcp_C32.h bbcp_MD5.h $(MD5HEADER)
+                         bbcp_SHA256_openssl.h
 	@echo Compiling bbcp_ChkSum.C
 	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
 
@@ -361,14 +352,6 @@ $(OBJDIR)/bbcp_LogFile.o:  bbcp_LogFile.C bbcp_LogFile.h bbcp_Pthread.h \
 	@echo Compiling bbcp_LogFile.C
 	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
 
-$(OBJDIR)/bbcp_MD5.o: bbcp_MD5.C bbcp_MD5.h bbcp_ChkSum.h bbcp_Endian.h
-	@echo Compiling bbcp_MD5.C
-	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
-
-$(OBJDIR)/bbcp_MD5_openssl.o: bbcp_MD5_openssl.C bbcp_MD5_openssl.h bbcp_ChkSum.h bbcp_Endian.h
-	@echo Compiling bbcp_MD5_openssl.C
-	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
-
 $(OBJDIR)/bbcp_NetLogger.o:  bbcp_NetLogger.C bbcp_NetLogger.h NetLogger.h
 	@echo Compiling bbcp_Netlogger.c
 	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
@@ -425,7 +408,7 @@ $(OBJDIR)/bbcp_RTCopy.o: bbcp_RTCopy.C bbcp_RTCopy.h bbcp_Config.h \
 	@echo Compiling bbcp_RTCopy.C
 	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
 
-$(OBJDIR)/bbcp_Set.o: bbcp_Set.C bbcp_C32.h
+$(OBJDIR)/bbcp_Set.o: bbcp_Set.C
 	@echo Compiling bbcp_Set.C
 	@$(CC) -c $(CFLAGS) $(INCLUDE) $(*F).C -o $(OBJDIR)/$(*F).o
 

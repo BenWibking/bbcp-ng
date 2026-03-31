@@ -25,17 +25,9 @@
 /* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
-#include "bbcp_C32.h"
+#include <openssl/evp.h>
+#include <string.h>
 #include "bbcp_Set.h"
-
-/******************************************************************************/
-/*                         L o c a l   O b j e c t s                          */
-/******************************************************************************/
-
-namespace
-{
-bbcp_C32 kHash;
-};
   
 /******************************************************************************/
 /*                           C o n s t r u c t o r                            */
@@ -74,11 +66,14 @@ bbcp_Set::~bbcp_Set()
 bool bbcp_Set::Add(const char *key)
 {
    SetItem *sP;
-   unsigned int hVal, kEnt;
+   unsigned char md[EVP_MAX_MD_SIZE];
+   unsigned int mdLen = 0, hVal, kEnt;
 
 // Get the hash for the key
 //
-   hVal = *(unsigned int *)kHash.Calc(key, strlen(key));
+   if (!EVP_Digest(key, strlen(key), md, &mdLen, EVP_sha256(), 0)
+   ||  mdLen < sizeof(hVal)) return false;
+   memcpy(&hVal, md, sizeof(hVal));
    kEnt = hVal % Slots;
 
 // Find the entry
