@@ -676,10 +676,18 @@ int bbcp_Protocol::Request(bbcp_Node *Node)
 //
    if (texists && bbcp_Config.snkSpec->Info.Otype == 'd')
        tdir = bbcp_Config.snkSpec->pathname;
-      else {int plen;
+      else {int plen, dlen;
             if ((plen = bbcp_Config.snkSpec->filename -
                        bbcp_Config.snkSpec->pathname))
-               strncpy(buff, bbcp_Config.snkSpec->pathname, plen-1);
+               {dlen = plen-1;
+                if (dlen >= (int)sizeof(buff))
+                   {bbcp_Fmsg("Request", "Target path is too long:",
+                              bbcp_DebugMask(bbcp_Config.snkSpec->pathname,
+                                             "path", DEBUGON));
+                    return Request_exit(36, dRM);
+                   }
+                memcpy(buff, bbcp_Config.snkSpec->pathname, dlen);
+               }
                else {buff[0] = '.'; plen = 2;}
             tdir = buff; buff[plen-1] = '\0';
            }

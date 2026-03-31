@@ -553,6 +553,7 @@ bool bbcp_FileSpec::ExtendFileSpec(int &numF, int &numL, int slOpt)
    bbcp_FileSpec* newp;
    DIR           *dirp;
    char           relative_name[1024], absolute_name[4096];
+   int            n;
    int            accD = (bbcp_Config.Options & bbcp_RXONLY ? R_OK|X_OK : 0);
    int            accF = (bbcp_Config.Options & bbcp_RDONLY ? R_OK : 0);
    int            dirFD;
@@ -587,7 +588,14 @@ bool bbcp_FileSpec::ExtendFileSpec(int &numF, int &numL, int slOpt)
       // Generate full pathname to be used in cases where we don't have fstatat
       // as well as recording the full path in the file specification.
       //
-      snprintf(absolute_name,sizeof(absolute_name),"%s/%s",pathname,d->d_name);
+      n = snprintf(absolute_name, sizeof(absolute_name), "%s/%s",
+                   pathname, d->d_name);
+      if (n < 0 || n >= (int)sizeof(absolute_name))
+         {bbcp_Fmsg("Extend", "Path is too long indexing",
+                    bbcp_DebugMask(pathname, "path", DEBUGON));
+          aOK = false;
+          break;
+         }
 
       // Cleanup our local file info object if it hasn't been cleaned up
       //
@@ -648,8 +656,15 @@ bool bbcp_FileSpec::ExtendFileSpec(int &numF, int &numL, int slOpt)
       // Initialize a new FileSpec object to represent this file
       //
       newp = new bbcp_FileSpec();
-      snprintf(relative_name, sizeof(relative_name), "%s/%s",
-               filename, d->d_name);
+      n = snprintf(relative_name, sizeof(relative_name), "%s/%s",
+                   filename, d->d_name);
+      if (n < 0 || n >= (int)sizeof(relative_name))
+         {bbcp_Fmsg("Extend", "Relative path is too long indexing",
+                    bbcp_DebugMask(absolute_name, "path", DEBUGON));
+          delete newp;
+          aOK = false;
+          break;
+         }
       newp->filereqn = newp->filename = strdup(relative_name);
 
       newp->pathname = strdup(absolute_name);
