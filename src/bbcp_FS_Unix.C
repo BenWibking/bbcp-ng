@@ -129,6 +129,31 @@ int bbcp_OpenParentDir(const char *path, char *leaf, size_t llen)
    if (fd < 0) return -errno;
    return fd;
 }
+
+int bbcp_OpenDirLocal(const char *path)
+{
+   int fd, opts = O_RDONLY;
+
+#ifdef O_DIRECTORY
+   opts |= O_DIRECTORY;
+#endif
+#ifdef O_NOFOLLOW
+   opts |= O_NOFOLLOW;
+#endif
+   do {fd = open(path, opts);}
+      while(fd < 0 && errno == EINTR);
+   if (fd < 0) return -errno;
+   return fd;
+}
+
+int bbcp_VerifyDirFD(int fd)
+{
+   struct stat sbuf;
+
+   if (fstat(fd, &sbuf)) return -errno;
+   if (!S_ISDIR(sbuf.st_mode)) return -(errno = ENOTDIR);
+   return 0;
+}
 }
 
 /******************************************************************************/
@@ -217,7 +242,7 @@ int bbcp_FS_Unix::Fsync(const char *fn, int fd)
        if (Slash)
           {int n = Slash - fn;
            strncpy(dBuff, fn, n); dBuff[n] = 0;
-           if ((n = open(dBuff, O_RDONLY)) < 0) return -errno;
+           if ((n = bbcp_OpenDirLocal(dBuff)) < 0) return n;
            if (fsync(n)) rc = -errno;
            close(n);
           }
@@ -266,9 +291,17 @@ int bbcp_FS_Unix::MKDir(const char *path, mode_t mode)
        }
 #if defined(AT_FDCWD)
 #ifdef O_NOFOLLOW
-    do {fd = openat(dfd, leaf, O_RDONLY|O_NOFOLLOW);}
+    do {fd = openat(dfd, leaf, O_RDONLY|O_NOFOLLOW
+#ifdef O_DIRECTORY
+                    |O_DIRECTORY
+#endif
+                   );}
 #else
-    do {fd = openat(dfd, leaf, O_RDONLY);}
+    do {fd = openat(dfd, leaf, O_RDONLY
+#ifdef O_DIRECTORY
+                    |O_DIRECTORY
+#endif
+                   );}
 #endif
        while(fd < 0 && errno == EINTR);
     if (fd < 0)
@@ -276,10 +309,20 @@ int bbcp_FS_Unix::MKDir(const char *path, mode_t mode)
         close(dfd);
         return rc;
        }
-    if (fchmod(fd, 0755)) rc = -errno;
+    if ((rc = bbcp_VerifyDirFD(fd)))
+       {close(fd);
+        close(dfd);
+        return rc;
+       }
+    if (fchmod(fd, mode)) rc = -errno;
     if (close(fd) && !rc) rc = -errno;
 #else
-    if (chmod(path, 0755)) rc = -errno;
+    if ((fd = bbcp_OpenDirLocal(path)) < 0)
+       {close(dfd);
+        return fd;
+       }
+    if (fchmod(fd, mode)) rc = -errno;
+    if (close(fd) && !rc) rc = -errno;
 #endif
     if (close(dfd) && !rc) rc = -errno;
     if (rc) return rc;

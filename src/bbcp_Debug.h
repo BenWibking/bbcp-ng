@@ -27,6 +27,8 @@
 /* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "bbcp_Headers.h"
@@ -45,6 +47,22 @@ extern bbcp_Debug bbcp_Debug;
 #endif
   
 #define DEBUGON    (bbcp_Debug.Trace)
+
+inline const char *bbcp_DebugMask(const char *text, const char *label=0,
+                                  int scrub=1)
+{
+   static char buff[8][64];
+   static int nextSlot = 0;
+   char *slot;
+
+   if (!text) return "";
+   if (!scrub) return text;
+   slot = buff[nextSlot];
+   nextSlot = (nextSlot + 1) & 0x7;
+   if (label && *label) snprintf(slot, sizeof(buff[0]), "<%s>", label);
+      else strcpy(slot, "<redacted>");
+   return slot;
+}
 
 #define DEBUG(x)  {if (bbcp_Debug.Trace) \
                       cerr << "bbcp_" <<bbcp_Debug.Who <<' ' <<bbcp_Debug.mypid <<": " <<x <<endl <<flush;}

@@ -237,7 +237,8 @@ int bbcp_File::Passthru(bbcp_BuffPool *iBP, bbcp_BuffPool *oBP,
               if (csVer && memcmp(outbuff->bHdr.cksm, csObj->csCurr(), csLen))
                  {char buff[32];
                   snprintf(buff, sizeof(buff), "%lld", outbuff->boff);
-                  bbcp_Fmsg("Write",iofn, "xfr checksum error at offset",buff);
+                  bbcp_Fmsg("Write", bbcp_DebugMask(iofn, "path", DEBUGON),
+                            "xfr checksum error at offset", buff);
                   rc = -EILSEQ; nstrms = 0; break;
                  }
              }
@@ -247,7 +248,9 @@ int bbcp_File::Passthru(bbcp_BuffPool *iBP, bbcp_BuffPool *oBP,
 
 // Check if we should print an error here
 //
-   if (rc && rc != -EILSEQ) bbcp_Emsg("Write",rc, "unable to write", iofn);
+   if (rc && rc != -EILSEQ)
+      bbcp_Emsg("Write",rc, "unable to write",
+                bbcp_DebugMask(iofn, "path", DEBUGON));
 
 // Queue an empty buffer indicating eof or abort the stream
 //
@@ -279,7 +282,8 @@ int bbcp_File::Read_All(bbcp_BuffPool &inPool, int Vn)
 // Get the size of the file
 //
    if ((bytesLeft = FSp->getSize(IOB->FD())) < 0)
-      {bbcp_Emsg("Read", static_cast<int>(-bytesLeft), "stat", iofn);
+      {bbcp_Emsg("Read", static_cast<int>(-bytesLeft), "stat",
+                 bbcp_DebugMask(iofn, "path", DEBUGON));
        inPool.Abort(); return 200;
       }
 
@@ -287,7 +291,8 @@ int bbcp_File::Read_All(bbcp_BuffPool &inPool, int Vn)
 //
    bytesLeft -= nextoffset;
    if (bytesLeft < 0)
-      {bbcp_Emsg("Read", ESPIPE, "stat", iofn);
+      {bbcp_Emsg("Read", ESPIPE, "stat",
+                 bbcp_DebugMask(iofn, "path", DEBUGON));
        inPool.Abort(); return 200;
       }
 
@@ -333,13 +338,17 @@ int bbcp_File::Read_All(bbcp_BuffPool &inPool, int Vn)
 //
    if (rc && rc != -ENOBUFS)
       {const char *Act=(bbcp_Config.Options & bbcp_XPIPE ? "piping":"writing");
-       bbcp_Emsg("Read", -rc, Act, iofn);
+       bbcp_Emsg("Read", -rc, Act, bbcp_DebugMask(iofn, "path", DEBUGON));
       }
 
 // Now close the input file, make sure no errors occur here
 //
    if ((ec = IOB->Close()))
-      if (!rc) {bbcp_Emsg("Read", -ec, "closing", iofn); rc = ec;}
+      if (!rc)
+         {bbcp_Emsg("Read", -ec, "closing",
+                    bbcp_DebugMask(iofn, "path", DEBUGON));
+          rc = ec;
+         }
 
 // Prepare an empty buffer to shutdown the buffer pipeline. The offet indicates
 // how much data should have been sent and received. A negative offset implies
@@ -357,17 +366,20 @@ int bbcp_File::Read_All(bbcp_BuffPool &inPool, int Vn)
        if (!rc && *bbcp_Config.csString)
           {char *csTxt, *csVal = csP->csObj->Final(&csTxt);
            if (memcmp(csVal, bbcp_Config.csValue, csP->csObj->csSize()))
-              {bbcp_Fmsg("Read", iofn, "source checksum", bbcp_Config.csString,
+              {bbcp_Fmsg("Read", bbcp_DebugMask(iofn, "path", DEBUGON),
+                         "source checksum", bbcp_Config.csString,
                          "does not match", csTxt);
                rc = EILSEQ;
-              } else {DEBUG(csP->csObj->Type() <<": " <<csTxt <<' ' <<iofn);}
+              } else {DEBUG(csP->csObj->Type() <<": " <<csTxt <<' '
+                              <<bbcp_DebugMask(iofn, "path", DEBUGON));}
           }
        delete csP;
       } else inPool.putFullBuff(bP);
 
 // All done
 //
-   DEBUG("EOF offset=" <<nextoffset <<" rc=" <<rc <<" fn=" <<iofn);
+   DEBUG("EOF offset=" <<nextoffset <<" rc=" <<rc <<" fn="
+         <<bbcp_DebugMask(iofn, "path", DEBUGON));
    return rc;
 }
 
@@ -634,7 +646,8 @@ int bbcp_File::verChkSum(bbcp_FileChkSum *csP)
        char *csTxt, *csVal = csP->csObj->Final(&csTxt);
        if (*bbcp_Config.csString)
           {if (memcmp(csVal, bbcp_Config.csValue, csP->csObj->csSize()))
-              {bbcp_Fmsg("Write", iofn, "target checksum", bbcp_Config.csString,
+              {bbcp_Fmsg("Write", bbcp_DebugMask(iofn, "path", DEBUGON),
+                         "target checksum", bbcp_Config.csString,
                          "does not match", csTxt);
                return -EILSEQ;
               }
@@ -646,7 +659,8 @@ int bbcp_File::verChkSum(bbcp_FileChkSum *csP)
 
 // All done
 //
-   DEBUG(csP->csObj->Type() <<": '" <<bbcp_Config.csString <<"' " <<iofn);
+   DEBUG(csP->csObj->Type() <<": '" <<bbcp_Config.csString <<"' "
+         <<bbcp_DebugMask(iofn, "path", DEBUGON));
    return 0;
 }
 
@@ -694,7 +708,7 @@ int bbcp_File::Write_All(bbcp_BuffPool &inPool, int nstrms)
 //
    if (rc < 0 && rc != -ENOBUFS)
       {const char *Act=(bbcp_Config.Options & bbcp_XPIPE ? "piping":"writing");
-       bbcp_Emsg("Write", -rc, Act, iofn);
+       bbcp_Emsg("Write", -rc, Act, bbcp_DebugMask(iofn, "path", DEBUGON));
        inPool.Abort();
       }
 
@@ -709,18 +723,24 @@ int bbcp_File::Write_All(bbcp_BuffPool &inPool, int nstrms)
 // If checksums are being printed, send off ours if we have it
 //
    if (bbcp_Config.csOpts & bbcp_csPrint && *bbcp_Config.csString)
-      cout <<"200 cks: " <<bbcp_Config.csString <<' ' <<iofn <<endl;
+      cout <<"200 cks: " <<bbcp_Config.csString <<' '
+           <<bbcp_DebugMask(iofn, "path", DEBUGON) <<endl;
 
 // Check if we should fsync this file
 //
    if (!rc && IOB && (bbcp_Config.Options & bbcp_FSYNC)
    && (rc = FSp->Fsync((bbcp_Config.Options & bbcp_DSYNC ? iofn:0),IOB->FD())))
-      bbcp_Emsg("Write", -rc, "synchronizing", iofn);
+      bbcp_Emsg("Write", -rc, "synchronizing",
+                bbcp_DebugMask(iofn, "path", DEBUGON));
 
 // Close the output file and make sure it's ok
 //
    if (IOB && (ec = IOB->Close()))
-      if (!rc) {bbcp_Emsg("Write", -ec, "closing", iofn); rc = ec;}
+      if (!rc)
+         {bbcp_Emsg("Write", -ec, "closing",
+                    bbcp_DebugMask(iofn, "path", DEBUGON));
+          rc = ec;
+         }
 
 // All done
 //

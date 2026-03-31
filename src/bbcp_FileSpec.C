@@ -193,7 +193,9 @@ int bbcp_FileSpec::Compose(long long did, char *dpath, int dplen, char *fname)
 
 // Do some debugging
 //
-   DEBUG("Compose " <<(targpath ? targpath : "?") <<' ' <<did <<' ' <<dpath <<' ' <<fname);
+   DEBUG("Compose " <<bbcp_DebugMask(targpath ? targpath : "?", "path", DEBUGON)
+         <<' ' <<did <<' ' <<bbcp_DebugMask(dpath, "path", DEBUGON)
+         <<' ' <<bbcp_DebugMask(fname, "path", DEBUGON));
 
 // If the output is a program, there is nothing to compse
 
@@ -230,7 +232,8 @@ int bbcp_FileSpec::Compose(long long did, char *dpath, int dplen, char *fname)
                 bbcp_Config.CKPdir, hostname, did, rp);
        buff[sizeof(buff)-1] = '\0';
        targsigf = strdup(buff);
-       DEBUG("Append signature file is " <<targsigf);
+       DEBUG("Append signature file is "
+             <<bbcp_DebugMask(targsigf, "path", DEBUGON));
       }
    return retc == 0;
 }
@@ -247,7 +250,8 @@ int bbcp_FileSpec::Create_Link()
 // temporary creation mode which gaurentees that we can actually place files
 // in the directory. This will later be set to the true mode if it differs.
 //
-   DEBUG("Make link " <<targpath <<" -> " <<Info.SLink);
+   DEBUG("Make link " <<bbcp_DebugMask(targpath, "path", DEBUGON)
+         <<" -> " <<bbcp_DebugMask(Info.SLink, "symlink", DEBUGON));
    if ((retc = FSp->MKLnk(Info.SLink, targpath)))
       return bbcp_Emsg("Create_Link", retc, "creating link", targpath);
 
@@ -268,7 +272,8 @@ int bbcp_FileSpec::Create_Path()
 // temporary creation mode which gaurentees that we can actually place files
 // in the directory. This will later be set to the true mode if it differs.
 //
-   DEBUG("Make path " <<Info.mode <<' ' <<targpath);
+   DEBUG("Make path " <<Info.mode <<' '
+         <<bbcp_DebugMask(targpath, "path", DEBUGON));
    if ((retc = FSp->MKDir(targpath, bbcp_Config.ModeDC)))
      {if (retc == -EEXIST) return 0;
          else return bbcp_Emsg("Create_Path", retc, "creating path", targpath);
@@ -520,7 +525,8 @@ bool bbcp_FileSpec::ExtendFileSpec(int &numF, int &numL, int slOpt)
       //
       if (pathSet && fInfo.Otype == 'd' && fInfo.SLink)
          {if (!(pathSet->Add(fInfo.SLink)))
-             {bbcp_Fmsg("Extend","symlink loop detected indexing",pathname);
+             {bbcp_Fmsg("Extend","symlink loop detected indexing",
+                        bbcp_DebugMask(pathname, "path", DEBUGON));
               aOK = false; break;
              }
          }
@@ -799,7 +805,8 @@ int bbcp_FileSpec::Stat(int complain)
            FSp = bbcp_FileSystem::getFS(*pathname ? pathname : ".", fsOpts);
            *filename = savefn;
           }
-       DEBUG("getFS " <<(fsOpts ? "pipe " : "norm ") <<pathname);
+       DEBUG("getFS " <<(fsOpts ? "pipe " : "norm ")
+             <<bbcp_DebugMask(pathname, "path", DEBUGON));
       }
 
 // Get info for the file
@@ -931,7 +938,8 @@ void bbcp_FileSpec::BuildPaths()
              PS_New->filename = PS_New->filereqn = PS_New->fspec+pfxlen;
              PS_New->seqno = plen;
              if (PS_New->Stat(0))
-                {DEBUG("Path " <<pathname <<" not found.");
+                {DEBUG("Path " <<bbcp_DebugMask(pathname, "path", DEBUGON)
+                       <<" not found.");
                  delete PS_New; return;
                 }
              if (PS_Cur) {PS_New->next = PS_Cur->next; PS_Cur->next = PS_New;}
