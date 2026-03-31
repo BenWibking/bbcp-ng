@@ -66,6 +66,7 @@ const char *bbcp_DebugExecArg(const char *arg)
 
    if (!arg) return "";
    if (!strncmp(arg, tokVar, strlen(tokVar))) return "BBCP_SECTOKEN=[redacted]";
+   if (strchr(arg, '/')) return bbcp_DebugMask(arg, "path", 1);
    return arg;
 }
 

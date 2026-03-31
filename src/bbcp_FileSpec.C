@@ -472,13 +472,19 @@ bool bbcp_FileSpec::ExtendFileSpec(int &numF, int &numL, int slOpt)
    // Open the directory as we will need a file descriptor to it. Different
    // operaing systems have different ways of doing this.
    //
-#ifdef SUN
-   if ((dirFD = open(pathname, O_RDONLY)) < 0) return true;
-   if (!(dirp = fdopendir(dirFD))) {close(dirFD); return true;}
+   do {
+#ifdef O_DIRECTORY
+       dirFD = open(pathname, O_RDONLY|O_DIRECTORY
 #else
-   if (!(dirp = opendir(pathname))) return true;
-   dirFD = dirfd(dirp);
+       dirFD = open(pathname, O_RDONLY
 #endif
+#ifdef O_NOFOLLOW
+                          |O_NOFOLLOW
+#endif
+                   );
+      } while(dirFD < 0 && errno == EINTR);
+   if (dirFD < 0) return true;
+   if (!(dirp = fdopendir(dirFD))) {close(dirFD); return true;}
 
    // This loop walks the tree rooted at pathname, adding each file it
    // finds to the end of the list pointed to by lastp.

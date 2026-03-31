@@ -159,6 +159,9 @@ int bbcp_OpenPathDir(const char *path, char *dirbuf, size_t dlen,
 #ifdef O_DIRECTORY
    opts |= O_DIRECTORY;
 #endif
+#ifdef O_NOFOLLOW
+   opts |= O_NOFOLLOW;
+#endif
    do {fd = open(dirbuf, opts);}
       while(fd < 0 && errno == EINTR);
    if (fd < 0) return -errno;
@@ -958,15 +961,15 @@ void bbcp_Config::Display()
    if (CBhost)
    cerr <<"cbhost:port " <<CBhost <<":" <<CBport <<endl;
    if (CKPdir)
-   cerr <<"ckpdir " <<CKPdir <<endl;
+   cerr <<"ckpdir " <<bbcp_DebugMask(CKPdir, "path") <<endl;
    if (Complvl)
    cerr <<"compress " <<Complvl <<endl;
    if (CopyOpts)
    cerr <<"copyopts " <<CopyOpts <<endl;
    if (IDfn)
-   cerr <<"idfn " <<IDfn <<endl;
+   cerr <<"idfn " <<bbcp_DebugMask(IDfn, "path") <<endl;
    if (Logfn)
-   cerr <<"logfn " <<Logfn <<endl;
+   cerr <<"logfn " <<bbcp_DebugMask(Logfn, "path") <<endl;
    cerr <<"mode " <<oct <<Mode <<dec <<endl;
    cerr <<"myhost " <<MyHost <<endl;
    cerr <<"myuser " <<MyUser <<endl;
@@ -1231,20 +1234,55 @@ int bbcp_Config::EnsureSafeDir(const char *path, mode_t mode, int create)
    struct stat sbuf;
    mode_t badMask = S_IRWXG | S_IRWXO;
    uid_t euid = geteuid();
+   int dirFD = -1;
+   int rc;
 
    if (!path || !*path) return -(errno = EINVAL);
    if (lstat(path, &sbuf))
       {if (errno != ENOENT || !create) return -errno;
        if (mkdir(path, mode)) return -errno;
-       if (lstat(path, &sbuf)) return -errno;
       }
-   if (!S_ISDIR(sbuf.st_mode)) return -(errno = ENOTDIR);
-   if (sbuf.st_uid != euid)    return -(errno = EPERM);
+   do {
+#ifdef O_DIRECTORY
+       dirFD = open(path, O_RDONLY|O_DIRECTORY
+#else
+       dirFD = open(path, O_RDONLY
+#endif
+#ifdef O_NOFOLLOW
+                         |O_NOFOLLOW
+#endif
+                   );
+      } while(dirFD < 0 && errno == EINTR);
+   if (dirFD < 0) return -errno;
+   if (fstat(dirFD, &sbuf))
+      {rc = -errno;
+       close(dirFD);
+       return rc;
+      }
+   if (!S_ISDIR(sbuf.st_mode))
+      {close(dirFD);
+       return -(errno = ENOTDIR);
+      }
+   if (sbuf.st_uid != euid)
+      {close(dirFD);
+       return -(errno = EPERM);
+      }
    if ((sbuf.st_mode & 0777) != mode)
-      {if (!create || chmod(path, mode)) return -(errno = EPERM);
-       if (lstat(path, &sbuf)) return -errno;
+      {if (!create || fchmod(dirFD, mode))
+          {close(dirFD);
+           return -(errno = EPERM);
+          }
+       if (fstat(dirFD, &sbuf))
+          {rc = -errno;
+           close(dirFD);
+           return rc;
+          }
       }
-   if (sbuf.st_mode & badMask) return -(errno = EPERM);
+   if (sbuf.st_mode & badMask)
+      {close(dirFD);
+       return -(errno = EPERM);
+      }
+   if (close(dirFD)) return -errno;
    return 0;
 }
 

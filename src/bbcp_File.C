@@ -378,7 +378,7 @@ int bbcp_File::Read_All(bbcp_BuffPool &inPool, int Vn)
 
 // All done
 //
-   DEBUG("EOF offset=" <<nextoffset <<" rc=" <<rc <<" fn="
+   DEBUG("EOF offset=" <<nextoffset <<" rc=" <<rc <<" path="
          <<bbcp_DebugMask(iofn, "path", DEBUGON));
    return rc;
 }

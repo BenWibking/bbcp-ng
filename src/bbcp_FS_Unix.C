@@ -388,7 +388,8 @@ bbcp_File *bbcp_FS_Unix::Open(const char *fn, int opts, int mode, const char *fa
 //
 #ifdef SUN
    if (dIO && directio(FD, DIRECTIO_ON))
-      {DEBUG(strerror(errno) <<" requesting direct i/o for " <<fn); dIO = 0;}
+      {DEBUG(strerror(errno) <<" requesting direct i/o for "
+             <<bbcp_DebugMask(fn, "path", DEBUGON)); dIO = 0;}
 #endif
 
 // Allocate a file object and return that
