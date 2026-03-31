@@ -82,6 +82,6 @@ int   Request_get(bbcp_FileSpec *fp);
 int   Request_login(bbcp_Link *Net);
 
 int   SendArgs(bbcp_Node *Node, bbcp_FileSpec *fsp,
-               char *cbhost, int cbport, char *addOpt=0);
+               char *cbhost, int cbport, char *addOpt=0, char *peerhost=0);
 };
 #endif

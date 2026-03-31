@@ -129,6 +129,17 @@ int bbcp_MakeAuthProof(const char *id, const char *nonce, char *outbuff,
    bbcp_tohex(md, mdlen, outbuff);
    return 0;
 }
+
+char *bbcp_PeerHost(char *host)
+{
+   char *hName;
+
+   if (!host) return bbcp_Config.MyHost;
+   if ((bbcp_Config.Options & bbcp_NODNS && isdigit(host[0])) || host[0] == '[')
+      return host;
+   hName = bbcp_Net.FullHostName(host, 0);
+   return (hName ? hName : host);
+}
 };
   
 /******************************************************************************/
@@ -144,7 +155,8 @@ int bbcp_Protocol::Schedule(bbcp_Node *Fnode, bbcp_FileSpec *Ffs,
    int retc;
 
    char *cbhost, *addOpt[2];
-   bool fcbh = false;
+   char *peerhost;
+   bool fcbh = false, fpeer = false;
 
 // Start-up the first node
 //
@@ -163,7 +175,11 @@ int bbcp_Protocol::Schedule(bbcp_Node *Fnode, bbcp_FileSpec *Ffs,
 
 // Send the arguments
 //
-   if ((retc = SendArgs(Fnode, Ffs, (char *)"none", 0, addOpt[0]))) return retc;
+   peerhost = bbcp_PeerHost(Lfs->hostname);
+   fpeer = peerhost && peerhost != Lfs->hostname && peerhost != bbcp_Config.MyHost;
+   retc = SendArgs(Fnode, Ffs, (char *)"none", 0, addOpt[0], peerhost);
+   if (fpeer) free(peerhost);
+   if (retc) return retc;
 
 // Get the callback port from the first host
 //
@@ -1059,10 +1075,11 @@ void bbcp_Protocol::putCSV(char *Host, char *csFn, char *csVal, int csVsz)
 /******************************************************************************/
   
 int bbcp_Protocol::SendArgs(bbcp_Node *Node, bbcp_FileSpec *fsp,
-                            char *cbhost, int cbport, char *addOpt)
+                            char *cbhost, int cbport, char *addOpt,
+                            char *peerhost)
 {
-   char buff[512], *apnt[6];
-   int alen[6], i = 0;
+   char buff[512], *apnt[8];
+   int alen[8], i = 0;
 
 // The remote program should be running at this point, setup the args
 //
@@ -1071,8 +1088,15 @@ int bbcp_Protocol::SendArgs(bbcp_Node *Node, bbcp_FileSpec *fsp,
        alen[i++] = strlen(bbcp_Config.CopyOpts);
       }
    if (addOpt) {apnt[i] = addOpt; alen[i++] = strlen(addOpt);}
-   apnt[i]   = buff;
-   alen[i++] = snprintf(buff, sizeof(buff)-1, " -H %s:%d\n", cbhost, cbport);
+   if (peerhost)
+      {apnt[i]   = buff;
+       alen[i++] = snprintf(buff, sizeof(buff)-1, " -H %s:%d -J %s\n",
+                            cbhost, cbport, peerhost);
+      }
+      else
+      {apnt[i]   = buff;
+       alen[i++] = snprintf(buff, sizeof(buff)-1, " -H %s:%d\n", cbhost, cbport);
+      }
    apnt[i] = 0; alen[i] = 0;
 
 // Send the argumnets via the stdout/stdin stream for the node

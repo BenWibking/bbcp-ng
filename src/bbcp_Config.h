@@ -67,6 +67,7 @@ char         *SnkXeq;
 char         *Logurl;
 char         *CBhost;
 int           CBport;
+char         *PeerHost;
 char         *SecToken;
 char         *MyAddr;
 char         *MyHost;

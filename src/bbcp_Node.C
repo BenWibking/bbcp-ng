@@ -698,6 +698,7 @@ int bbcp_Node::Incomming(bbcp_Protocol *protocol)
 
 // Find the port number we should use for incomming connections
 //
+   bbcp_Net.RestrictPeer(bbcp_Config.PeerHost);
    bbcp_Net.findPort(minport, maxport);
 
 // Set up the default ports first if we didn't find specified ones
@@ -706,7 +707,9 @@ int bbcp_Node::Incomming(bbcp_Protocol *protocol)
    || ((retc = bbcp_Net.Bind(BBCP_DFLTMINPORT, BBCP_DFLTMAXPORT, 1, -1)) < 0))
    if ((retc = bbcp_Net.Bind(minport, maxport,
                bbcp_Config.bindtries, bbcp_Config.bindwait)) < 0)
-      return retc;
+      {bbcp_Net.RestrictPeer();
+       return retc;
+      }
 
 // Report the port number we have chosen
 //
@@ -724,6 +727,7 @@ int bbcp_Node::Incomming(bbcp_Protocol *protocol)
 // Unbind the network and make sure we have all of the agreed upon links
 //
    bbcp_Net.unBind();
+   bbcp_Net.RestrictPeer();
    if (dlcount < bbcp_Config.Streams) return Recover("Accept");
    iocount = dlcount;
 

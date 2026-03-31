@@ -33,6 +33,8 @@
 #include <netdb.h>
 #include <poll.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -81,6 +83,7 @@ bbcp_Network::bbcp_Network()
    maxSndBuff = 0;
    ATune      = 0;
    netQoS     = 0;
+   peerHost   = 0;
    accWait    = 30000;
    Sender     = 0;
    Window     = 0;
@@ -196,6 +199,10 @@ bbcp_Link *bbcp_Network::Accept()
           {bbcp_Fmsg("Accept", "Unable to determine peer name; ", eText);
            close(newfd); continue;
           }
+       if (!PeerOK(&PeerAddr.Addr, addrLen))
+          {bbcp_Fmsg("Accept", "Rejected unexpected peer", (char *)newfn);
+           close(newfd); continue;
+          }
        setOpts("accept", newfd);
 
     // Allocate a new network object
@@ -209,6 +216,16 @@ bbcp_Link *bbcp_Network::Accept()
 // Return new net object
 //
    return newconn;
+}
+
+/******************************************************************************/
+/*                           R e s t r i c t P e e r                          */
+/******************************************************************************/
+
+void bbcp_Network::RestrictPeer(const char *host)
+{
+   if (peerHost) {free(peerHost); peerHost = 0;}
+   if (host && *host) peerHost = strdup(host);
 }
   
 /******************************************************************************/
@@ -320,6 +337,46 @@ bbcp_Link *bbcp_Network::Connect(char *host, int port, int retries, int rwait)
 // Return the link
 //
    return newlink;
+}
+
+/******************************************************************************/
+/* Private:                         P e e r O K                               */
+/******************************************************************************/
+
+int bbcp_Network::PeerOK(const struct sockaddr *peerAddr, socklen_t addrLen)
+{
+   struct addrinfo hints, *rP = 0, *aP;
+   bbcp_NetAddr actual(peerAddr), expected;
+   char hostBuff[NI_MAXHOST+1], *hName = peerHost;
+   int rc, port;
+
+   (void)addrLen;
+   if (!peerHost || !*peerHost) return 1;
+   if ((port = actual.Port()) < 0) return 0;
+
+   if (*hName == '[')
+      {size_t hLen = strlen(hName);
+       if (hLen < 3 || hName[hLen-1] != ']') return 0;
+       if (hLen-1 >= sizeof(hostBuff)) return 0;
+       memcpy(hostBuff, hName+1, hLen-2);
+       hostBuff[hLen-2] = '\0';
+       hName = hostBuff;
+      }
+
+   memset(&hints, 0, sizeof(hints));
+   hints.ai_family   = peerAddr->sa_family;
+   hints.ai_socktype = SOCK_STREAM;
+   hints.ai_flags    = AI_ADDRCONFIG;
+   if ((rc = getaddrinfo(hName, 0, &hints, &rP)) || !rP) return 0;
+
+   for (aP = rP; aP; aP = aP->ai_next)
+       {if (aP->ai_family != peerAddr->sa_family) continue;
+        expected.Set(aP, port);
+        if (actual.Same(&expected)) {freeaddrinfo(rP); return 1;}
+       }
+
+   freeaddrinfo(rP);
+   return 0;
 }
 
 /******************************************************************************/

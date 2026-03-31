@@ -127,6 +127,7 @@ bbcp_Config::bbcp_Config()
    SynSpec   = 0;
    CBhost    = 0;
    CBport    = 0;
+   PeerHost  = 0;
    CopyOpts  = 0;
    CopyOSrc  = 0;
    CopyOTrg  = 0;
@@ -213,6 +214,7 @@ bbcp_Config::~bbcp_Config()
    if (LogSpec)  free(LogSpec);
    if (PorSpec)  free(PorSpec);
    if (CBhost)   free(CBhost);
+   if (PeerHost) free(PeerHost);
    if (CopyOpts) free(CopyOpts);
    if (SecToken) free(SecToken);
    if (MyHost && MyHost != lclHost) free(MyHost);
@@ -236,7 +238,7 @@ bbcp_Config::~bbcp_Config()
                     memcpy(&cbp[1], x, _n+1); cbp+=_n+1;}
 
 #define bbcp_VALIDOPTS (char *)"-a.AB:b:C:c.d:DeE:fFghi:I:kKl:L:m:nN:oOpP:q:rR.s:S:t:T:u:U:vVw:W:x:y:zZ:4.~@:$#+"
-#define bbcp_SSOPTIONS bbcp_VALIDOPTS "MH:Y:"
+#define bbcp_SSOPTIONS bbcp_VALIDOPTS "H:J:MY:"
 
 #define Hmsg1(a)   {bbcp_Fmsg("Config", a);    help(1);}
 #define Hmsg2(a,b) {bbcp_Fmsg("Config", a, b); help(1);}
@@ -320,6 +322,9 @@ void bbcp_Config::Arguments(int argc, char **argv, int cfgfd)
                  if ((CBport = HostAndPort("callback",arglist.argval,
                                    cbhname, sizeof(cbhname))) < 0) exit(1);
                  CBhost = strdup(cbhname);
+                 break;
+       case 'J': if (PeerHost) free(PeerHost);
+                 PeerHost = strdup(arglist.argval);
                  break;
        case 'i': if (IDfn) free(IDfn);
                  IDfn = strdup(arglist.argval);

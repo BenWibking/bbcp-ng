@@ -27,6 +27,7 @@
 /* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
 
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include "bbcp_Link.h"
@@ -63,6 +64,8 @@ int          getWBSize(int xfd, int srwant);
 
 int          QoS(int newQoS=-1);
 
+void         RestrictPeer(const char *host=0);
+
 static int   setPorts(int pnum1, int pnum2);
 
 int          setWindow(int wsz, int noAT=0);
@@ -70,7 +73,7 @@ int          setWindow(int wsz, int noAT=0);
 void         unBind() {if (iofd >= 0) {close(iofd); iofd = Portnum = -1;}}
 
              bbcp_Network();
-            ~bbcp_Network() {unBind();}
+            ~bbcp_Network() {unBind(); if (peerHost) free(peerHost);}
 
 private:
 
@@ -84,6 +87,7 @@ int        maxRcvBuff;
 int        maxSndBuff;
 int        maxSegment;
 int        netQoS;
+char      *peerHost;
 int        Portnum;
 int        protID;
 int        Sender;
@@ -93,6 +97,7 @@ int        WinSOP;
 //int   getHostAddr(char *hostname, struct sockaddr_in &InetAddr);
 //char *getHostName(struct sockaddr_in &addr);
 int   Retry(int retries, int rwait);
+int   PeerOK(const struct sockaddr *peerAddr, socklen_t addrLen);
 void  setOpts(const char *who, int iofd);
 int   setSegSz(const char *who, int iofd);
 };
