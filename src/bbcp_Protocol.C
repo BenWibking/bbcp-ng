@@ -310,7 +310,8 @@ int bbcp_Protocol::Process(bbcp_Node *Node)
 // If there is a r/t lock file, make sure it exists
 //
    if ((bbcp_Config.Options & bbcp_RTCSRC) && bbcp_Config.rtLockf
-   &&  (bbcp_Config.rtLockd = open(bbcp_Config.rtLockf, O_RDONLY)) < 0)
+   &&  (bbcp_Config.rtLockd = bbcp_Config.SecureOpen(bbcp_Config.rtLockf,
+                                                     O_RDONLY, 0, 0, 1)) < 0)
       {rc = errno, NoGo = 1;
        bbcp_Emsg("Config", rc, "opening lock file", bbcp_Config.rtLockf);
       }

@@ -149,6 +149,21 @@ int bbcp_WriteAll(int fd, const char *data, size_t dlen)
         }
    return 0;
 }
+
+int bbcp_OpenPathDir(const char *path, char *dirbuf, size_t dlen,
+                     char *filebuf, size_t flen)
+{
+   int fd, opts = O_RDONLY, rc;
+
+   if ((rc = bbcp_SplitPath(path, dirbuf, dlen, filebuf, flen))) return rc;
+#ifdef O_DIRECTORY
+   opts |= O_DIRECTORY;
+#endif
+   do {fd = open(dirbuf, opts);}
+      while(fd < 0 && errno == EINTR);
+   if (fd < 0) return -errno;
+   return fd;
+}
 };
   
 /******************************************************************************/
@@ -1016,7 +1031,7 @@ void bbcp_Config::Config_Ctl(int rwbsz)
 // If a checksum output file exists, open it now
 //
    if (csPath)
-      {if ((csFD = SecureOpen(csPath, O_CREAT|O_APPEND|O_WRONLY, 0644)) < 0)
+      {if ((csFD = SecureOpen(csPath, O_CREAT|O_APPEND|O_WRONLY, 0644, 0, 1)) < 0)
           {bbcp_Emsg("Config", errno, "opening checksum file", csPath);
            exit(2);
           }
@@ -1238,10 +1253,11 @@ int bbcp_Config::EnsureSafeDir(const char *path, mode_t mode, int create)
 /******************************************************************************/
 
 int bbcp_Config::SecureOpen(const char *path, int flags, mode_t mode,
-                            int requireSafeDir)
+                            int requireSafeDir, int requireRegular)
 {
    char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
-   int rc;
+   struct stat sbuf;
+   int fd, rc;
 
    if (requireSafeDir)
       {if ((rc = bbcp_SplitPath(path, dirbuf, sizeof(dirbuf),
@@ -1251,7 +1267,16 @@ int bbcp_Config::SecureOpen(const char *path, int flags, mode_t mode,
 #ifdef O_NOFOLLOW
    flags |= O_NOFOLLOW;
 #endif
-   return (mode ? open(path, flags, mode) : open(path, flags));
+   do {fd = (mode ? open(path, flags, mode) : open(path, flags));}
+      while(fd < 0 && errno == EINTR);
+   if (fd < 0) return fd;
+   if (requireRegular)
+      {if (fstat(fd, &sbuf))
+          {rc = errno; close(fd); errno = rc; return -1;}
+       if (!S_ISREG(sbuf.st_mode))
+          {close(fd); errno = EPERM; return -1;}
+      }
+   return fd;
 }
 
 /******************************************************************************/
@@ -1263,27 +1288,42 @@ int bbcp_Config::SecureReplace(const char *path, const char *data, size_t dlen,
 {
    char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
    char tmpbuf[MAXPATHLEN+32];
-   int fd, rc;
+   char *tmpleaf;
+   int dfd = -1, fd, rc;
 
    if ((rc = bbcp_SplitPath(path, dirbuf, sizeof(dirbuf),
                             filebuf, sizeof(filebuf)))) return rc;
    if (requireSafeDir)
       {if ((rc = EnsureSafeDir(dirbuf, 0700, 0))) return rc;}
+   do {
+#ifdef O_DIRECTORY
+       dfd = open(dirbuf, O_RDONLY|O_DIRECTORY);
+#else
+       dfd = open(dirbuf, O_RDONLY);
+#endif
+      } while(dfd < 0 && errno == EINTR);
+   if (dfd < 0) return -errno;
 
    if (snprintf(tmpbuf, sizeof(tmpbuf), "%s/.bbcp.tmp.%ld.XXXXXX",
                 dirbuf, (long)getpid()) >= (int)sizeof(tmpbuf))
-      return -(errno = ENAMETOOLONG);
-   if ((fd = mkstemp(tmpbuf)) < 0) return -errno;
+      {close(dfd); return -(errno = ENAMETOOLONG);}
+   if ((fd = mkstemp(tmpbuf)) < 0)
+      {rc = -errno; close(dfd); return rc;}
+   tmpleaf = rindex(tmpbuf, '/');
+   tmpleaf = (tmpleaf ? tmpleaf+1 : tmpbuf);
    if (fchmod(fd, mode))
-      {rc = -errno; close(fd); unlink(tmpbuf); return rc;}
+      {rc = -errno; close(fd); unlinkat(dfd, tmpleaf, 0); close(dfd); return rc;}
    if ((rc = bbcp_WriteAll(fd, data, dlen)))
-      {close(fd); unlink(tmpbuf); return rc;}
+      {close(fd); unlinkat(dfd, tmpleaf, 0); close(dfd); return rc;}
    if (fsync(fd))
-      {rc = -errno; close(fd); unlink(tmpbuf); return rc;}
+      {rc = -errno; close(fd); unlinkat(dfd, tmpleaf, 0); close(dfd); return rc;}
    if (close(fd))
-      {rc = -errno; unlink(tmpbuf); return rc;}
-   if (rename(tmpbuf, path))
-      {rc = -errno; unlink(tmpbuf); return rc;}
+      {rc = -errno; unlinkat(dfd, tmpleaf, 0); close(dfd); return rc;}
+   if (renameat(AT_FDCWD, tmpbuf, dfd, filebuf))
+      {rc = -errno; unlinkat(dfd, tmpleaf, 0); close(dfd); return rc;}
+   if (fsync(dfd))
+      {rc = -errno; close(dfd); return rc;}
+   if (close(dfd)) return -errno;
    return 0;
 }
 
@@ -1294,15 +1334,23 @@ int bbcp_Config::SecureReplace(const char *path, const char *data, size_t dlen,
 int bbcp_Config::SecureUnlink(const char *path, int requireSafeDir)
 {
    char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
-   int rc;
+   int dfd, rc;
 
    if (requireSafeDir)
       {if ((rc = bbcp_SplitPath(path, dirbuf, sizeof(dirbuf),
                                 filebuf, sizeof(filebuf)))) return rc;
        if ((rc = EnsureSafeDir(dirbuf, 0700, 0))) return rc;
       }
-   if (!unlink(path)) return 0;
-   return -errno;
+   if ((dfd = bbcp_OpenPathDir(path, dirbuf, sizeof(dirbuf),
+                               filebuf, sizeof(filebuf))) < 0) return dfd;
+   do {rc = unlinkat(dfd, filebuf, 0);}
+      while(rc && errno == EINTR);
+   if (rc)
+      {rc = -errno; close(dfd); return rc;}
+   if (fsync(dfd))
+      {rc = -errno; close(dfd); return rc;}
+   if (close(dfd)) return -errno;
+   return 0;
 }
 
 /******************************************************************************/

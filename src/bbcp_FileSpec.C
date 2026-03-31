@@ -847,7 +847,7 @@ int bbcp_FileSpec::Xfr_Done()
 //
 //cerr <<"tsz=" <<targetsz <<" isz=" <<Info.size <<" sigf=" <<targsigf <<endl;
    if (bbcp_Config.Options & bbcp_APPEND)
-      {if ((sigfd = bbcp_Config.SecureOpen(targsigf, O_RDONLY, 0, 1)) >= 0)
+      {if ((sigfd = bbcp_Config.SecureOpen(targsigf, O_RDONLY, 0, 1, 1)) >= 0)
           {close(sigfd);
            rc = Xfr_Fixup();
            if (rc >= 0 || !Force) return rc;
@@ -948,7 +948,7 @@ int bbcp_FileSpec::Xfr_Fixup()
 
 // Read the contents of the signature file asnd decode it
 //
-   if ((infd = bbcp_Config.SecureOpen(targsigf, O_RDONLY, 0, 1)) < 0)
+   if ((infd = bbcp_Config.SecureOpen(targsigf, O_RDONLY, 0, 1, 1)) < 0)
       return bbcp_Emsg("Xfr_Fixup", -errno, "opening file", targsigf);
    TSigstream.Attach(infd);
    if (!(lp = TSigstream.GetLine()) || TSpec.Decode(lp,targsigf))
