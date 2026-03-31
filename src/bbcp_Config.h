@@ -31,6 +31,7 @@
 #include "bbcp_FileSpec.h"
 #include "bbcp_LogFile.h"
 #include "bbcp_Stream.h"
+#include <sys/types.h>
 
 class bbcp_Args;
 
@@ -132,6 +133,11 @@ void  Arguments(int argc, char **argv, int cfgfd=-1);
 int   ConfigInit(int argc, char **argv);
 int   Configure(const char *cfn);
 void  Display();
+int   EnsureSafeDir(const char *path, mode_t mode, int create);
+int   SecureOpen(const char *path, int flags, mode_t mode=0, int requireSafeDir=0);
+int   SecureReplace(const char *path, const char *data, size_t dlen, mode_t mode,
+                    int requireSafeDir=0);
+int   SecureUnlink(const char *path, int requireSafeDir=0);
 void  setCS(char *buff);
 void  setRWB(int rwbsz);
 int   a2sz(const char *etxt, char *item, int  &result, int  minv, int  maxv);

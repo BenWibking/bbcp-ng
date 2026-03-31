@@ -46,6 +46,7 @@
 #include <strings.h>
 #include <stdio.h>
 #include <sys/param.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/resource.h>
@@ -104,6 +105,50 @@ namespace
 {
        char lclHost[] = {'l','o','c','a','l','h','o','s','t','\0'};
 const  char *bbcp_SecTokenEnv = "BBCP_SECTOKEN";
+
+int bbcp_SplitPath(const char *path, char *dirbuf, size_t dlen,
+                   char *filebuf, size_t flen)
+{
+   const char *slash;
+   size_t n;
+
+   if (!path || !*path) return -EINVAL;
+   slash = rindex(path, '/');
+   if (!slash)
+      {if (dlen < 2) return -(errno = ENAMETOOLONG);
+       if (flen < strlen(path)+1) return -(errno = ENAMETOOLONG);
+       strcpy(dirbuf, ".");
+       strcpy(filebuf, path);
+       return 0;
+      }
+
+   n = slash - path;
+   if (!n)
+      {if (dlen < 2) return -(errno = ENAMETOOLONG);
+       strcpy(dirbuf, "/");
+      }
+      else {
+       if (n+1 > dlen) return -(errno = ENAMETOOLONG);
+       memcpy(dirbuf, path, n);
+       dirbuf[n] = '\0';
+      }
+   if (flen < strlen(slash+1)+1) return -(errno = ENAMETOOLONG);
+   strcpy(filebuf, slash+1);
+   return 0;
+}
+
+int bbcp_WriteAll(int fd, const char *data, size_t dlen)
+{
+   size_t n = 0;
+
+   while(n < dlen)
+        {ssize_t rc = write(fd, data+n, dlen-n);
+         if (rc > 0) {n += rc; continue;}
+         if (rc < 0 && errno == EINTR) continue;
+         return -(rc < 0 ? errno : EIO);
+        }
+   return 0;
+}
 };
   
 /******************************************************************************/
@@ -662,11 +707,17 @@ void bbcp_Config::Arguments(int argc, char **argv, int cfgfd)
        CKPdir = (char *)malloc(strlen(homedir) + sizeof(ckpsfx) + 1);
        snprintf(CKPdir, strlen(homedir) + sizeof(ckpsfx) + 1, "%s%s",
                 homedir, ckpsfx);
-       if (mkdir(CKPdir, 0755) && errno != EEXIST)
-          {bbcp_Emsg("Config",errno,"creating restart directory",CKPdir);
+       if (EnsureSafeDir(CKPdir, 0700, 1))
+          {bbcp_Emsg("Config",errno,"preparing restart directory",CKPdir);
            exit(100);
           }
        DEBUG("Restart directory is " <<CKPdir);
+      }
+   else if (CKPdir && Options & bbcp_APPEND && Options & bbcp_SNK)
+      {if (EnsureSafeDir(CKPdir, 0700, 1))
+          {bbcp_Emsg("Config",errno,"preparing restart directory",CKPdir);
+           exit(100);
+          }
       }
 
 // Compute proper MT level
@@ -965,7 +1016,7 @@ void bbcp_Config::Config_Ctl(int rwbsz)
 // If a checksum output file exists, open it now
 //
    if (csPath)
-      {if ((csFD = open(csPath, O_CREAT|O_APPEND|O_WRONLY, 0644)) < 0)
+      {if ((csFD = SecureOpen(csPath, O_CREAT|O_APPEND|O_WRONLY, 0644)) < 0)
           {bbcp_Emsg("Config", errno, "opening checksum file", csPath);
            exit(2);
           }
@@ -1154,6 +1205,104 @@ void bbcp_Config::LoadSecTokenEnv()
    if (!envToken || !*envToken) return;
    if (SecToken) free(SecToken);
    SecToken = strdup(envToken);
+}
+
+/******************************************************************************/
+/*                           E n s u r e S a f e D i r                        */
+/******************************************************************************/
+
+int bbcp_Config::EnsureSafeDir(const char *path, mode_t mode, int create)
+{
+   struct stat sbuf;
+   mode_t badMask = S_IRWXG | S_IRWXO;
+   uid_t euid = geteuid();
+
+   if (!path || !*path) return -(errno = EINVAL);
+   if (lstat(path, &sbuf))
+      {if (errno != ENOENT || !create) return -errno;
+       if (mkdir(path, mode)) return -errno;
+       if (lstat(path, &sbuf)) return -errno;
+      }
+   if (!S_ISDIR(sbuf.st_mode)) return -(errno = ENOTDIR);
+   if (sbuf.st_uid != euid)    return -(errno = EPERM);
+   if ((sbuf.st_mode & 0777) != mode)
+      {if (!create || chmod(path, mode)) return -(errno = EPERM);
+       if (lstat(path, &sbuf)) return -errno;
+      }
+   if (sbuf.st_mode & badMask) return -(errno = EPERM);
+   return 0;
+}
+
+/******************************************************************************/
+/*                             S e c u r e O p e n                            */
+/******************************************************************************/
+
+int bbcp_Config::SecureOpen(const char *path, int flags, mode_t mode,
+                            int requireSafeDir)
+{
+   char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
+   int rc;
+
+   if (requireSafeDir)
+      {if ((rc = bbcp_SplitPath(path, dirbuf, sizeof(dirbuf),
+                                filebuf, sizeof(filebuf)))) return rc;
+       if ((rc = EnsureSafeDir(dirbuf, 0700, 0))) return rc;
+      }
+#ifdef O_NOFOLLOW
+   flags |= O_NOFOLLOW;
+#endif
+   return (mode ? open(path, flags, mode) : open(path, flags));
+}
+
+/******************************************************************************/
+/*                          S e c u r e R e p l a c e                         */
+/******************************************************************************/
+
+int bbcp_Config::SecureReplace(const char *path, const char *data, size_t dlen,
+                               mode_t mode, int requireSafeDir)
+{
+   char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
+   char tmpbuf[MAXPATHLEN+32];
+   int fd, rc;
+
+   if ((rc = bbcp_SplitPath(path, dirbuf, sizeof(dirbuf),
+                            filebuf, sizeof(filebuf)))) return rc;
+   if (requireSafeDir)
+      {if ((rc = EnsureSafeDir(dirbuf, 0700, 0))) return rc;}
+
+   if (snprintf(tmpbuf, sizeof(tmpbuf), "%s/.bbcp.tmp.%ld.XXXXXX",
+                dirbuf, (long)getpid()) >= (int)sizeof(tmpbuf))
+      return -(errno = ENAMETOOLONG);
+   if ((fd = mkstemp(tmpbuf)) < 0) return -errno;
+   if (fchmod(fd, mode))
+      {rc = -errno; close(fd); unlink(tmpbuf); return rc;}
+   if ((rc = bbcp_WriteAll(fd, data, dlen)))
+      {close(fd); unlink(tmpbuf); return rc;}
+   if (fsync(fd))
+      {rc = -errno; close(fd); unlink(tmpbuf); return rc;}
+   if (close(fd))
+      {rc = -errno; unlink(tmpbuf); return rc;}
+   if (rename(tmpbuf, path))
+      {rc = -errno; unlink(tmpbuf); return rc;}
+   return 0;
+}
+
+/******************************************************************************/
+/*                           S e c u r e U n l i n k                          */
+/******************************************************************************/
+
+int bbcp_Config::SecureUnlink(const char *path, int requireSafeDir)
+{
+   char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
+   int rc;
+
+   if (requireSafeDir)
+      {if ((rc = bbcp_SplitPath(path, dirbuf, sizeof(dirbuf),
+                                filebuf, sizeof(filebuf)))) return rc;
+       if ((rc = EnsureSafeDir(dirbuf, 0700, 0))) return rc;
+      }
+   if (!unlink(path)) return 0;
+   return -errno;
 }
 
 /******************************************************************************/

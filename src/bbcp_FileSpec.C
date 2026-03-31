@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -575,7 +576,11 @@ int bbcp_FileSpec::FinalizeX(int retc, int setMode)
 
 // Delete the signature file if one exists
 //
-   if (targsigf) FSp->RM(targsigf);
+   if (targsigf)
+      {int rc = bbcp_Config.SecureUnlink(targsigf, 1);
+       if (rc && rc != -ENOENT)
+          bbcp_Emsg("Finalize", -rc, "removing restart file", targsigf);
+      }
 
 // All done
 //
@@ -809,31 +814,19 @@ int bbcp_FileSpec::Stat(int complain)
   
 int bbcp_FileSpec::WriteSigFile()
 {
-    int outfd;
     char *buff;
-    bbcp_Stream sfStream;
-
-// Open the sigfile
-//
-   if ((outfd = open(targsigf, O_WRONLY|O_CREAT|O_TRUNC,0600))
-      < 0) return bbcp_Emsg("WriteSigFile", -errno, "opening", targsigf);
+    int rc;
 
 // Create a signature and write it out
 //
    if (!(buff = Encode()))
-      {sfStream.Close();
-       return bbcp_Fmsg("WriteSigFile","Unable to create restart file",targsigf);
-      }
-   sfStream.Attach(outfd);
-   if (sfStream.Put(buff, strlen(buff)) < 0)
-      {free(buff);
-       return bbcp_Fmsg("WriteSigFile","Unable to create restart file",targsigf);
-      }
+      return bbcp_Fmsg("WriteSigFile","Unable to create restart file",targsigf);
+   rc = bbcp_Config.SecureReplace(targsigf, buff, strlen(buff), 0600, 1);
    free(buff);
+   if (rc) return bbcp_Emsg("WriteSigFile", -rc, "writing restart file", targsigf);
 
 // All done
 //
-   sfStream.Close();
    return 0;
 }
 
@@ -843,7 +836,7 @@ int bbcp_FileSpec::WriteSigFile()
   
 int bbcp_FileSpec::Xfr_Done()
 {
-   struct stat sbuff;
+   int sigfd;
    int rc, Force = bbcp_Config.Options & bbcp_FORCE;
 
 // Check if the output was a pipe
@@ -854,10 +847,13 @@ int bbcp_FileSpec::Xfr_Done()
 //
 //cerr <<"tsz=" <<targetsz <<" isz=" <<Info.size <<" sigf=" <<targsigf <<endl;
    if (bbcp_Config.Options & bbcp_APPEND)
-      {if (!stat(targsigf, &sbuff))
-          {rc = Xfr_Fixup();
+      {if ((sigfd = bbcp_Config.SecureOpen(targsigf, O_RDONLY, 0, 1)) >= 0)
+          {close(sigfd);
+           rc = Xfr_Fixup();
            if (rc >= 0 || !Force) return rc;
           } else {
+           if (errno != ENOENT)
+              return bbcp_Emsg("Xfr_Done", errno, "opening restart file", targsigf);
            if (targetsz == Info.size || targetsz < 0)
               {if (targetsz >= 0) bbcp_Fmsg("Xfr_Done", "File", targpath,
                   "appears to have already been copied; copy skipped.");
@@ -952,7 +948,7 @@ int bbcp_FileSpec::Xfr_Fixup()
 
 // Read the contents of the signature file asnd decode it
 //
-   if ((infd = open(targsigf, O_RDONLY)) < 0)
+   if ((infd = bbcp_Config.SecureOpen(targsigf, O_RDONLY, 0, 1)) < 0)
       return bbcp_Emsg("Xfr_Fixup", -errno, "opening file", targsigf);
    TSigstream.Attach(infd);
    if (!(lp = TSigstream.GetLine()) || TSpec.Decode(lp,targsigf))
