@@ -43,9 +43,9 @@ int bbcp_Timer::Format(char *tbuff)
 // This routine is used by a single thread, so it's ok to be sloppy here
 //
    tmp = localtime((const time_t *)&Now);
-   return sprintf(tbuff, "%02d%02d%02d %02d:%02d:%02d ",
-                  tmp->tm_year%100, tmp->tm_mon+1, tmp->tm_mday,
-                  tmp->tm_hour,     tmp->tm_min,   tmp->tm_sec);
+   return snprintf(tbuff, 24, "%02d%02d%02d %02d:%02d:%02d ",
+                   tmp->tm_year%100, tmp->tm_mon+1, tmp->tm_mday,
+                   tmp->tm_hour,     tmp->tm_min,   tmp->tm_sec);
 }
 
 /******************************************************************************/

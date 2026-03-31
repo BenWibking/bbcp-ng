@@ -75,7 +75,7 @@ void bbcp_ProgMon::Monitor()
 //
    if (CXp) cxip = cxinfo;
       else cxip = (char *)"";
-   strcpy(pbuff, "not");
+   memcpy(pbuff, "not", 4);
 
 // Run a loop until we are killed, reporting what we see
 //
@@ -84,14 +84,15 @@ void bbcp_ProgMon::Monitor()
       {etime.Stop(); etime.Report(elptime);
 
        curbytes = FSp->Stats();
-       if (Tbytes) sprintf(pbuff,"%d%%",static_cast<int>(curbytes*100/Tbytes));
+       if (Tbytes) snprintf(pbuff, sizeof(pbuff), "%d%%",
+                            static_cast<int>(curbytes*100/Tbytes));
        xfrtime =  static_cast<double>(curbytes)
                / (static_cast<double>(elptime) / 1000.0);
 
        if (CXp)
           {if (!(cxbytes = CXp->Bytes())) cratio = 0.0;
               else cratio = static_cast<float>(curbytes*10/cxbytes) / 10.0;
-           sprintf(cxinfo, " compressed %.1f", cratio);
+           snprintf(cxinfo, sizeof(cxinfo), " compressed %.1f", cratio);
           }
 
        if (bewordy)
@@ -107,12 +108,12 @@ void bbcp_ProgMon::Monitor()
        if (bbcp_Config.Logfn) *tbuff = 0;
           else etime.Format(tbuff);
        if (bewordy)
-          sprintf(buff, "bbcp: %s %s done; %.1f %sB/s, "
-                        "avg %.1f %sB/s%s\n",
-                        tbuff,  pbuff, xfrtnow, xaXB, xfrtime, xtXB, cxip);
+          snprintf(buff, sizeof(buff),
+                   "bbcp: %s %s done; %.1f %sB/s, avg %.1f %sB/s%s\n",
+                   tbuff,  pbuff, xfrtnow, xaXB, xfrtime, xtXB, cxip);
           else
-          sprintf(buff, "bbcp: %s %s done; %.1f %sB/s%s\n",
-                         tbuff,  pbuff, xfrtime, xtXB, cxip);
+          snprintf(buff, sizeof(buff), "bbcp: %s %s done; %.1f %sB/s%s\n",
+                   tbuff,  pbuff, xfrtime, xtXB, cxip);
        cerr <<buff <<flush;
       }
 

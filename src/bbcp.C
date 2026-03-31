@@ -172,7 +172,7 @@ int main(int argc, char *argv[], char *envp[])
        Elapsed_Timer.Stop();
        Elapsed_Timer.Report(ttime);
        xRate = ((double)TotBytes)/ttime*1000.0; xType = bbcp_Config::Scale(xRate);
-       sprintf(buff, "%.1f %sB/s", xRate, xType);
+       snprintf(buff, sizeof(buff), "%.1f %sB/s", xRate, xType);
        cerr <<TotFiles <<(TotFiles != 1 ? " files" : " file");
        cerr <<" copied at effectively " <<buff <<endl;
       }

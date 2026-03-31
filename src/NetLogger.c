@@ -233,13 +233,13 @@ char * lookup_host( )
    if (gethostname (shn, MAXHOSTNAMELEN) < 0)
    {
       perror ("gethostname");
-      strcpy (shn, FALLBACK_HOSTNAME);
+      memcpy (shn, FALLBACK_HOSTNAME, sizeof(FALLBACK_HOSTNAME));
    }
    /* now lookup the full hostname from the name server */
    if ((hp = gethostbyname (shn)) == NULL)
    {
       perror ("gethostbyname");
-      strcpy (hn, FALLBACK_HOSTNAME);
+      memcpy (hn, FALLBACK_HOSTNAME, sizeof(FALLBACK_HOSTNAME));
    }
    else
    {
@@ -304,7 +304,7 @@ NL_Handle * create_handle( char *program_name )
     {
        int pid = (int) getpid ();
        program_name = (char *) malloc (32);
-       sprintf (program_name, "%d", pid);
+       snprintf (program_name, 32, "%d", pid);
     }
     
     lp->curr_buffer_size = 0;
@@ -316,10 +316,10 @@ NL_Handle * create_handle( char *program_name )
     lp->pname = strdup (program_name);
     lp->hname = lookup_host();
     if (lp->binary)
-       sprintf (lp->host_prog, "%s;%s;", lp->hname, program_name);
+       snprintf (lp->host_prog, 128, "%s;%s;", lp->hname, program_name);
     else
-       sprintf (lp->host_prog, " HOST=%s PROG=%s NL.EVNT=",
-		lp->hname, program_name);
+       snprintf (lp->host_prog, 128, " HOST=%s PROG=%s NL.EVNT=",
+                 lp->hname, program_name);
     lp->failed = 0;
     lp->tag = NULL;
     setDoNotClose( lp, 0 );
@@ -1316,7 +1316,7 @@ NetLoggerSetGlobalTag (char *tag)
 	  ret = -1;
        }
        else
-	  strcpy (globtag, tag);
+	  memcpy (globtag, tag, strlen(tag)+1);
     }
 #if defined(NL_THREADSAFE)
     pthread_mutex_unlock (&global_mutex);
@@ -1448,11 +1448,12 @@ printStandardFieldsToBuffer (struct timeval *tvPtr,
 	    {
 		return NULL;
 	    }
-	  strcpy (lp->last_date, date_buffer);
+	  memcpy (lp->last_date, date_buffer, strlen(date_buffer)+1);
       }
     /* sprintf is SLOW! New version speeds up NetLoggerWrite by about 15%! */
 #ifdef OLD_VERSION
-    sprintf (date_buffer_usec, "%06d", (int) tvPtr->tv_usec);
+    snprintf (date_buffer_usec, sizeof(date_buffer_usec), "%06d",
+              (int) tvPtr->tv_usec);
     if (nl_append_cstr(lp, date_buffer_usec, &endPtr))
       {
 	  return NULL;
@@ -2255,7 +2256,7 @@ NetLoggerFastWrite (NL_Handle * lp, char *keyword, char *fmt, ...)
     gettimeofday (&tv, 0);
 
     if (lp->last_tv_sec != tv.tv_sec)
-	sprintf (lp->last_date, "%d", (int) tv.tv_sec);
+	snprintf (lp->last_date, DATE_LEN, "%d", (int) tv.tv_sec);
 
     endPtr = lp->message_buffer;
     if (nl_append_cstr(lp, "DATE=", &endPtr))
@@ -2278,11 +2279,12 @@ NetLoggerFastWrite (NL_Handle * lp, char *keyword, char *fmt, ...)
 	  rval = -1;
 	  goto error_return;
        }
-       strcpy (lp->last_date, date_buffer);
+       memcpy (lp->last_date, date_buffer, strlen(date_buffer)+1);
     }
     /* sprintf is SLOW! New version speeds up NetLoggerWrite by about 15%! */
 #ifdef OLD_VERSION
-    sprintf (date_buffer_usec, ".%06d", (int) tvPtr->tv_usec);
+    snprintf (date_buffer_usec, sizeof(date_buffer_usec), ".%06d",
+              (int) tvPtr->tv_usec);
     if (nl_append_cstr(lp, date_buffer_usec, &endPtr))
     {
        rval = -1;

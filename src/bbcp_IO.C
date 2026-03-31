@@ -70,11 +70,11 @@ void bbcp_IO::Log(const char *rk, const char *wk)
 
    if (rk)
      {if (strlen(rk) > 16)
-         {sprintf(buff, "START_%16s_READ", rk); RKeyA = strdup(buff);
-          sprintf(buff,   "END_%16s_READ", rk); RKeyZ = strdup(buff);
+         {snprintf(buff, sizeof(buff), "START_%16s_READ", rk); RKeyA = strdup(buff);
+          snprintf(buff, sizeof(buff),   "END_%16s_READ", rk); RKeyZ = strdup(buff);
          } else {
-          sprintf(buff, "START_%s_READ", rk); RKeyA = strdup(buff);
-          sprintf(buff,   "END_%s_READ", rk); RKeyZ = strdup(buff);
+          snprintf(buff, sizeof(buff), "START_%s_READ", rk); RKeyA = strdup(buff);
+          snprintf(buff, sizeof(buff),   "END_%s_READ", rk); RKeyZ = strdup(buff);
          }
       }
 
@@ -83,11 +83,11 @@ void bbcp_IO::Log(const char *rk, const char *wk)
 
    if (wk)
      {if (strlen(wk) > 16)
-         {sprintf(buff, "START_%16s_WRITE", wk); WKeyA = strdup(buff);
-          sprintf(buff,   "END_%16s_WRITE", wk); WKeyZ = strdup(buff);
+         {snprintf(buff, sizeof(buff), "START_%16s_WRITE", wk); WKeyA = strdup(buff);
+          snprintf(buff, sizeof(buff),   "END_%16s_WRITE", wk); WKeyZ = strdup(buff);
          } else {
-          sprintf(buff, "START_%s_WRITE", wk); WKeyA = strdup(buff);
-          sprintf(buff,   "END_%s_WRITE", wk); WKeyZ = strdup(buff);
+          snprintf(buff, sizeof(buff), "START_%s_WRITE", wk); WKeyA = strdup(buff);
+          snprintf(buff, sizeof(buff),   "END_%s_WRITE", wk); WKeyZ = strdup(buff);
          }
      }
 }

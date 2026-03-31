@@ -63,12 +63,15 @@ int bbcp_Fmsg(const char *sfx, const char *txt1, const char *txt2,
    char *bP, buff[2048];
    int i;
 
-   bP = buff + (sfx && bbcp_Debug.Trace
-      ? sprintf(buff, "bbcp_%s.%s: %s", bbcp_Debug.Who, sfx, txt1)
-      : sprintf(buff, "bbcp: %s", txt1));
+   if (sfx && bbcp_Debug.Trace)
+      bP = buff + snprintf(buff, sizeof(buff), "bbcp_%s.%s: %s",
+                           bbcp_Debug.Who, sfx, txt1);
+      else
+      bP = buff + snprintf(buff, sizeof(buff), "bbcp: %s", txt1);
 
-   for (i = 0; i < 5 && bV[i]; i++) bP += sprintf(bP, " %s", bV[i]);
-   strcpy(bP, "\n");
+   for (i = 0; i < 5 && bV[i] && bP < buff+sizeof(buff); i++)
+       bP += snprintf(bP, sizeof(buff)-(bP-buff), " %s", bV[i]);
+   snprintf(bP, sizeof(buff)-(bP-buff), "\n");
    cerr <<buff;
    return -1;
 }

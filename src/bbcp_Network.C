@@ -128,7 +128,7 @@ bbcp_Network::bbcp_Network()
    if ((netFD = open("/dev/tcp", O_RDWR)) > -1)
       {struct strioctl stri;
        memset(netBuff, 0, sizeof(netBuff));
-       strcpy(netBuff, "tcp_max_buf");
+       memcpy(netBuff, "tcp_max_buf", sizeof("tcp_max_buf"));
        stri.ic_cmd = ND_GET;
        stri.ic_timout = 0;
        stri.ic_len = sizeof(netBuff);
@@ -173,7 +173,7 @@ bbcp_Link *bbcp_Network::Accept()
                       while(retc < 0 && (errno == EAGAIN || errno == EINTR));
            if (!sfd[0].revents)
               {char buff[16];
-               sprintf(buff,"%d", Portnum);
+               snprintf(buff, sizeof(buff), "%d", Portnum);
                bbcp_Fmsg("Accept", "Accept timed out on port", buff);
                return (bbcp_Link *)0;
               }
@@ -184,7 +184,7 @@ bbcp_Link *bbcp_Network::Accept()
 
        if (newfd < 0)
           {char buff[16];
-           sprintf(buff,"%d", Portnum);
+           snprintf(buff, sizeof(buff), "%d", Portnum);
            bbcp_Emsg("Accept", errno, "performing accept on port", buff);
            continue;
           }
@@ -308,7 +308,7 @@ bbcp_Link *bbcp_Network::Connect(char *host, int port, int retries, int rwait)
    if (retc)
       {char buff[1024];
        delete newlink;
-       sprintf(buff, "port %s:%d", hName, port);
+       snprintf(buff, sizeof(buff), "port %s:%d", hName, port);
        bbcp_Emsg("Connect", errno, "unable to connect to", buff);
        return (bbcp_Link *)0;
       }

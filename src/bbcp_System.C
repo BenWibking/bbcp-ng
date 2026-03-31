@@ -167,7 +167,7 @@ pid_t bbcp_System::getGrandP()
     bbcp_Stream cmdstream;
     int rc, grandpa;
 
-    sprintf(cmd, PS_CMD, getppid());
+    snprintf(cmd, sizeof(cmd), PS_CMD, getppid());
     if ((rc = cmdstream.Exec(cmd))) rc = cmdstream.LastError();
        else if (!cmdstream.GetLine() || !(lp = cmdstream.GetLine())) rc = -33;
                else {errno = 0;
@@ -289,8 +289,8 @@ int bbcp_System::Waitpid(pid_t *pvec, int *ent, int nomsg)
                         sval = WTERMSIG(estat);
                         if (nomsg) retc = (sval ? -sval : -255);
                            else {char pbuff[16], sbuff[16];
-                                 sprintf(pbuff, "%d", Pdone);
-                                 sprintf(sbuff, "%d", sval);
+                                 snprintf(pbuff, sizeof(pbuff), "%d", Pdone);
+                                 snprintf(sbuff, sizeof(sbuff), "%d", sval);
                                  bbcp_Fmsg("Waitpid", "Copy process", pbuff,
                                  (char *)"was killed via signal", sbuff);
                                 }

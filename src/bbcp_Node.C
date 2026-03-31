@@ -195,7 +195,8 @@ int bbcp_Node::Run(char *user, char *host, char *prog, char *parg)
    if (*nodename != '[') sshDest = nodename;
       else {int i = strlen(nodename);
             if (i > (int)sizeof(bufDest)) return -EHOSTUNREACH;
-            strcpy(bufDest, nodename+1);
+            memcpy(bufDest, nodename+1, i-1);
+            bufDest[i-1] = 0;
             bufDest[i-2] = 0; sshDest= bufDest;
            }
 
@@ -369,7 +370,7 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
    if ((bbcp_Config.Options & bbcp_BLAB) | bbcp_Config.Progint)
       if (bbcp_Config.Options & bbcp_APPEND) 
          {char buff[32];
-          sprintf(buff, "%lld", startoff);
+          snprintf(buff, sizeof(buff), "%lld", startoff);
           bbcp_Fmsg("RecvFile","Appending to",Path,"at offset",buff);
          }
          else bbcp_Fmsg("RecvFile", "Creating", Path);
@@ -671,8 +672,8 @@ void bbcp_Node::chkWsz(int fd, int Final)
 
 // Issue message
 //
-   n = sprintf(mbuff, "%s %s using %s %s window of %d\n",
-                      smode, bbcp_Config.MyHost, Wtype, fmode, wbsz);
+   n = snprintf(mbuff, sizeof(mbuff), "%s %s using %s %s window of %d\n",
+                smode, bbcp_Config.MyHost, Wtype, fmode, wbsz);
    write(STDERR_FILENO, mbuff, n);
 }
 
@@ -796,7 +797,8 @@ int bbcp_Node::Outgoing(bbcp_Protocol *protocol)
 int bbcp_Node::Recover(const char *who)
 {
     char mbuff[256];
-    sprintf(mbuff, "%d of %d data streams.", dlcount, bbcp_Config.Streams);
+    snprintf(mbuff, sizeof(mbuff), "%d of %d data streams.",
+             dlcount, bbcp_Config.Streams);
     bbcp_Fmsg(who, "Unable to allocate more than", mbuff);
     while(dlcount) data_link[--dlcount]->Close();
     return -1;
@@ -822,21 +824,24 @@ int n;
    if (cxp)
       {if (!(cxbytes = cxp->Bytes())) cratio = 0.0;
           else cratio = ((float)(xbytes*10/cxbytes))/10.0;
-       sprintf(buff, " compressed %.1f", cratio);
+       snprintf(buff, sizeof(buff), " compressed %.1f", cratio);
       } else *buff = 0;
 
 // Print the summary
 //
    xrate = ((double)xbytes)/ttime*1000.0; xType = bbcp_Config::Scale(xrate);
-   n = sprintf(Line, "File %s created; %lld bytes at %.1f %sB/s%s\n",
-               fp->targpath, xbytes, xrate, xType, buff);
+   n = snprintf(Line, sizeof(Line),
+                "File %s created; %lld bytes at %.1f %sB/s%s\n",
+                fp->targpath, xbytes, xrate, xType, buff);
    write(STDERR_FILENO, Line, n);
    if (!(bbcp_Config.Options & bbcp_BLAB)) return;
 
 // Tell user how many reorder events there were
 //
-   n = sprintf(Line, "%d buffers used with %d reorders; peaking at %d.\n",
-              bbcp_BPool.BuffCount(), ioFile->bufreorders, ioFile->maxreorders);
+   n = snprintf(Line, sizeof(Line),
+                "%d buffers used with %d reorders; peaking at %d.\n",
+                bbcp_BPool.BuffCount(), ioFile->bufreorders,
+                ioFile->maxreorders);
    write(STDERR_FILENO, Line, n);
 }
  

@@ -236,7 +236,7 @@ int bbcp_File::Passthru(bbcp_BuffPool *iBP, bbcp_BuffPool *oBP,
              {csObj->Update(outbuff->data, outbuff->blen);
               if (csVer && memcmp(outbuff->bHdr.cksm, csObj->csCurr(), csLen))
                  {char buff[32];
-                  sprintf(buff, "%lld", outbuff->boff);
+                  snprintf(buff, sizeof(buff), "%lld", outbuff->boff);
                   bbcp_Fmsg("Write",iofn, "xfr checksum error at offset",buff);
                   rc = -EILSEQ; nstrms = 0; break;
                  }
@@ -640,7 +640,7 @@ int bbcp_File::verChkSum(bbcp_FileChkSum *csP)
               }
           } else {
            memcpy(bbcp_Config.csValue, csVal, csLen);
-           strcpy(bbcp_Config.csString, csTxt);
+           memcpy(bbcp_Config.csString, csTxt, strlen(csTxt)+1);
           }
       }
 

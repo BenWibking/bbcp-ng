@@ -231,7 +231,8 @@ bbcp_Config::~bbcp_Config()
 #define Add_Nup(x) {cbp[0]=' '; cbp=n2a(x,&cbp[1],"+%d");}
 #define Add_Oct(x) {cbp[0]=' '; cbp=n2a(x,&cbp[1],"%o");}
 #define Cat_Oct(x) {            cbp=n2a(x,&cbp[0],"%o");}
-#define Add_Str(x) {cbp[0]=' '; strcpy(&cbp[1], x); cbp+=strlen(x)+1;}
+#define Add_Str(x) {size_t _n = strlen(x); cbp[0]=' '; \
+                    memcpy(&cbp[1], x, _n+1); cbp+=_n+1;}
 
 #define bbcp_VALIDOPTS (char *)"-a.AB:b:C:c.d:DeE:fFghi:I:kKl:L:m:nN:oOpP:q:rR.s:S:t:T:u:U:vVw:W:x:y:zZ:4.~@:$#+"
 #define bbcp_SSOPTIONS bbcp_VALIDOPTS "MH:Y:"
@@ -645,7 +646,8 @@ void bbcp_Config::Arguments(int argc, char **argv, int cfgfd)
       {const char *ckpsfx = "/.bbcp";
        char *homedir = bbcp_OS.getHomeDir();
        CKPdir = (char *)malloc(strlen(homedir) + sizeof(ckpsfx) + 1);
-       strcpy(CKPdir, homedir); strcat(CKPdir, ckpsfx);
+       snprintf(CKPdir, strlen(homedir) + sizeof(ckpsfx) + 1, "%s%s",
+                homedir, ckpsfx);
        if (mkdir(CKPdir, 0755) && errno != EEXIST)
           {bbcp_Emsg("Config",errno,"creating restart directory",CKPdir);
            exit(100);
@@ -800,7 +802,8 @@ int bbcp_Config::ConfigInit(int argc, char **argv)
       struct stat buf;
       homedir = bbcp_OS.getHomeDir();
       ConfigFN = (char *)malloc(strlen(homedir) + strlen(cfn) + 1);
-      strcpy(ConfigFN, homedir); strcat(ConfigFN, cfn);
+      snprintf(ConfigFN, strlen(homedir) + strlen(cfn) + 1, "%s%s",
+               homedir, cfn);
       if (stat(ConfigFN, &buf))
          {retc = 0; free(ConfigFN); ConfigFN = 0;}
          else if ((retc = Configure(ConfigFN))) return retc;
@@ -924,7 +927,7 @@ const char *bbcp_Config::Scale(double &xVal)
 void bbcp_Config::WAMsg(const char *who, const char *act, int newsz)
 {
     char buff[128];
-    sprintf(buff, "to %d", newsz);
+    snprintf(buff, sizeof(buff), "to %d", newsz);
     bbcp_Fmsg(who, act, buff, "bytes.");
 }
 
@@ -1071,8 +1074,9 @@ void bbcp_Config::Config_Xeq(int rwbsz)
    memreq = RWBsz * BNum + (Options & bbcp_COMPRESS ? Bfact * RWBsz : 0);
    if (memreq > bbcp_OS.FreeRAM/4)
       {char mbuff[80];
-       sprintf(mbuff, "I/O buffers (%" FMTLL "dK) > 25%% of available free memory (%" FMTLL "dK);",
-                      memreq/1024, bbcp_OS.FreeRAM/1024);
+       snprintf(mbuff, sizeof(mbuff),
+                "I/O buffers (%" FMTLL "dK) > 25%% of available free memory (%" FMTLL "dK);",
+                memreq/1024, bbcp_OS.FreeRAM/1024);
        bbcp_Fmsg("Config", (Options & bbcp_SRC ? "Source" : "Sink"), mbuff,
                            "copy may be slow");
       }
@@ -1193,10 +1197,10 @@ int bbcp_Config::a2x(char *result, char *item, int ilen)
 /******************************************************************************/
 
 char *bbcp_Config::n2a(int  val, char *buff, const char *fmt)
-      {return buff + sprintf(buff, fmt, val);}
+      {return buff + snprintf(buff, 32, fmt, val);}
 
 char *bbcp_Config::n2a(long long  val, char *buff, const char *fmt)
-      {return buff + sprintf(buff, fmt, val);}
+      {return buff + snprintf(buff, 32, fmt, val);}
 
 /******************************************************************************/
 /*                               P a r s e S B                                */
@@ -1211,7 +1215,8 @@ void bbcp_Config::ParseSB(char *spec)
 //
    if (spec[i-1] == '/') SrcBuff = strdup(spec);
       else {SrcBuff = (char *)malloc(i+2);
-            strcpy(SrcBuff, spec); strcpy(SrcBuff+i, "/");
+            memcpy(SrcBuff, spec, i);
+            memcpy(SrcBuff+i, "/", 2);
            }
 
 // Prepare to parse the spec
@@ -1267,7 +1272,7 @@ int bbcp_Config::EOpts(char *opts)
 //
    csLen = strlen(opts);
    if (csLen >= (int)sizeof(csName)) *csName = 0;
-      else strcpy(csName, opts);
+      else memcpy(csName, opts, csLen+1);
         if (!strcmp("a32", csName)) {csType = bbcp_csA32; csSize =  4;}
    else if (!strcmp("c32", csName)) {csType = bbcp_csC32; csSize =  4;}
    else if (!strcmp("md5", csName)) {csType = bbcp_csMD5; csSize = 16;}
@@ -1281,7 +1286,7 @@ int bbcp_Config::EOpts(char *opts)
           {bbcp_Fmsg("Config","Invalid",csName,"checksum value -",csArg);
            return -1;
           }
-       strcpy(csString, csArg);
+       memcpy(csString, csArg, csLen+1);
       }
 
 // Indicate where the checksum generation will occur
@@ -1582,8 +1587,8 @@ int bbcp_Config::setPorts(char *pspec)
 
 // Reformat the port range
 //
-   if (Colon) sprintf(buff, "%d:%d", pnum1, pnum2);
-      else    sprintf(buff, "%d",    pnum1);
+   if (Colon) snprintf(buff, sizeof(buff), "%d:%d", pnum1, pnum2);
+      else    snprintf(buff, sizeof(buff), "%d",    pnum1);
    if (PorSpec) free(PorSpec);
    PorSpec = strdup(buff);
    return 1;

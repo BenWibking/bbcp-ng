@@ -199,7 +199,7 @@ void bbcp_Protocol::getEnd(bbcp_Node *Node)
         {if (!strcmp(wp, "cks:"))
             {if (!(wp=Node->GetToken()) || (n = strlen(wp)) > sizeof(csVal))
                 continue;
-             strcpy(csVal, wp);
+             memcpy(csVal, wp, n+1);
              if (!(wp = Node->GetToken())) continue;
              putCSV(Node->NodeName(), wp, csVal, n);
              continue;
@@ -276,7 +276,7 @@ int bbcp_Protocol::Process(bbcp_Node *Node)
 //
    if (NoGo)
       {char buff[8];
-       strcpy(buff, "eol\n");
+       memcpy(buff, "eol\n", 5);
        Remote->Put(buff, (ssize_t)4);
        Node->Stop();
        return 2;
@@ -394,7 +394,7 @@ int bbcp_Protocol::Process_get()
         {pp = fp; fp=fp->next;}
    if (!fp)
       {char buff[64];
-       sprintf(buff, "%d", fnum);
+       snprintf(buff, sizeof(buff), "%d", fnum);
        bbcp_Fmsg("Process_get", "file '", buff, wp, "' not found.");
        return 2;
       }
@@ -411,7 +411,7 @@ int bbcp_Protocol::Process_get()
       {if (bbcp_Config.a2ll("file offset", wp, foffset, 0, -1)) return 22;
        if (foffset > fp->Info.size)
           {char buff[128];
-           sprintf(buff, "(%lld>%lld)", foffset, fp->Info.size);
+           snprintf(buff, sizeof(buff), "(%lld>%lld)", foffset, fp->Info.size);
            bbcp_Fmsg("Process_get","Invalid offset",buff,"for",fp->pathname);
            return 29;
           }
@@ -497,7 +497,8 @@ int bbcp_Protocol::Process_login(bbcp_Link *Net)
 
 // Respond to this login request (control only gets a response)
 //
-   blen = sprintf(buff, "204 loginok wsz: %d %d\n",respWS,bbcp_Config.RWBsz);
+   blen = snprintf(buff, sizeof(buff), "204 loginok wsz: %d %d\n",
+                   respWS, bbcp_Config.RWBsz);
    if ((retc = np->Put(buff, blen)) < 0) return -1;
 
 // All done
@@ -662,7 +663,7 @@ int bbcp_Protocol::Request_exit(int retc, const char *dRM)
 
 // Send the exit command (we don't care how it completes)
 //
-   blen = sprintf(buff, "exit %d\n", retc);
+   blen = snprintf(buff, sizeof(buff), "exit %d\n", retc);
    Remote->Put(buff, (ssize_t)blen);
    Local->Stop();
 
@@ -798,9 +799,9 @@ int bbcp_Protocol::Request_login(bbcp_Link *Net)
 
 // Prepare the login request
 //
-   blen = sprintf(buff,id,bbcp_Config.SecToken,(bbcp_Net.AutoTune() ? "+" : ""),
-                          bbcp_Config.Wsize, bbcp_Version.VData,
-                          bbcp_Config.RWBsz);
+   blen = snprintf(buff, sizeof(buff), id, bbcp_Config.SecToken,
+                   (bbcp_Net.AutoTune() ? "+" : ""), bbcp_Config.Wsize,
+                   bbcp_Version.VData, bbcp_Config.RWBsz);
 
 // Send the request
 //

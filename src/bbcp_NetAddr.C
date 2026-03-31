@@ -208,7 +208,7 @@ const char *bbcp_NetAddr::Set(const char *hSpec, int pNum)
    if (*hSpec == '/')
       {if (strlen(hSpec) >= sizeof(unixPipe->sun_path)) return "path too long";
        unixPipe = new sockaddr_un;
-       strcpy(unixPipe->sun_path, hSpec);
+       memcpy(unixPipe->sun_path, hSpec, strlen(hSpec)+1);
        unixPipe->sun_family = IP.Addr.sa_family = AF_UNIX;
        addrSize = sizeof(sockaddr_un);
        protType = PF_UNIX;

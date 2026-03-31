@@ -122,10 +122,11 @@ void *bbcp_FileSpecIndex(void *pp)
             {numD++; aOK = fP->ExtendFileSpec(numF, numL, slOpt);}
          fP = fP->next;
          if (bbcp_Config.Progint && (tNow = time(0)) >= xMsg)
-            {sprintf(xBuff, "%d file%s and %d link%s in %d director%s so far...",
-                     numF, (numF == 1 ? "" : "s"),
-                     numL, (numL == 1 ? "" : "s"),
-                     numD, (numD == 1 ? "y": "ies"));
+            {snprintf(xBuff, sizeof(xBuff),
+                      "%d file%s and %d link%s in %d director%s so far...",
+                      numF, (numF == 1 ? "" : "s"),
+                      numL, (numL == 1 ? "" : "s"),
+                      numD, (numD == 1 ? "y": "ies"));
              bbcp_Fmsg("Dirlist", "Found", xBuff);
              xMsg = tNow+bbcp_Config.Progint;
             }
@@ -145,10 +146,11 @@ void *bbcp_FileSpecIndex(void *pp)
 // Indicate what we found if so wanted
 //
    if (Blab)
-      {sprintf(xBuff, "%d file%s and %d link%s in %d director%s.",
-               numF, (numF == 1 ? "" : "s"),
-               numL, (numL == 1 ? "" : "s"),
-               numD, (numD == 1 ? "y": "ies"));
+      {snprintf(xBuff, sizeof(xBuff),
+                "%d file%s and %d link%s in %d director%s.",
+                numF, (numF == 1 ? "" : "s"),
+                numL, (numL == 1 ? "" : "s"),
+                numD, (numD == 1 ? "y": "ies"));
        bbcp_Fmsg("Source", "Copying", xBuff);
       }
 
@@ -182,10 +184,10 @@ int bbcp_FileSpec::Compose(long long did, char *dpath, int dplen, char *fname)
    n = dplen + 1 + strlen(fn) + 1;
    if (targpath) free(targpath);
    targpath = (char *)malloc(n);
-   strcpy(targpath, dpath);
+   memcpy(targpath, dpath, dplen+1);
    targetfn = targpath + dplen;
    if (dpath[dplen-1] != '/') {*targetfn = '/'; targetfn++;}
-   strcpy(targetfn, fn+trimDir);
+   memcpy(targetfn, fn+trimDir, strlen(fn+trimDir)+1);
 
 // Get the current state of the file or directory
 //
@@ -278,7 +280,8 @@ int bbcp_FileSpec::Decode(char *buff, char *xName)
 // Make sure it is correct
 //
    if (n != 9) 
-      {sprintf(fnbuff,"Unable to decode item %d in file specification from",n+1);
+      {snprintf(fnbuff, sizeof(fnbuff),
+                "Unable to decode item %d in file specification from", n+1);
        return bbcp_Fmsg("Decode", fnbuff, (xName ? xName : hostname));
       }
 
@@ -567,8 +570,8 @@ void bbcp_FileSpec::Parse(char *spec, int isPipe)
        if (!hostname) hostname = bbcp_Config.SrcHost;
        if (bbcp_Config.Options & bbcp_SRC && bbcp_Config.SrcBase)
           {fspec1 = (char *)malloc(strlen(pathname)+bbcp_Config.SrcBlen+1);
-           strcpy(fspec1,   bbcp_Config.SrcBase);
-           strcpy(fspec1+bbcp_Config.SrcBlen, pathname);
+           memcpy(fspec1, bbcp_Config.SrcBase, bbcp_Config.SrcBlen);
+           memcpy(fspec1+bbcp_Config.SrcBlen, pathname, strlen(pathname)+1);
            pathname = fspec1;
            filename = filereqn = fspec1+bbcp_Config.SrcBlen;
            BuildPaths(); 
