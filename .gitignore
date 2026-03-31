@@ -1,0 +1,15 @@
+bin/
+obj/
+
+# Crash dumps and ad hoc local outputs
+core
+*.core
+
+# Editor backups
+*~
+.*.swp
+*.swp
+*.swo
+
+# macOS Finder metadata
+.DS_Store
