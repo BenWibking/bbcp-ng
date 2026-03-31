@@ -29,6 +29,7 @@
 
 #include <stdlib.h>
 #include <unistd.h>
+#include <netdb.h>
 #include <sys/socket.h>
 #include "bbcp_Link.h"
 #include "bbcp_Pthread.h"
@@ -73,7 +74,7 @@ int          setWindow(int wsz, int noAT=0);
 void         unBind() {if (iofd >= 0) {close(iofd); iofd = Portnum = -1;}}
 
              bbcp_Network();
-            ~bbcp_Network() {unBind(); if (peerHost) free(peerHost);}
+            ~bbcp_Network() {unBind(); ClearPeerRestriction();}
 
 private:
 
@@ -88,6 +89,7 @@ int        maxSndBuff;
 int        maxSegment;
 int        netQoS;
 char      *peerHost;
+struct addrinfo *peerAddrs;
 int        Portnum;
 int        protID;
 int        Sender;
@@ -98,6 +100,7 @@ int        WinSOP;
 //char *getHostName(struct sockaddr_in &addr);
 int   Retry(int retries, int rwait);
 int   PeerOK(const struct sockaddr *peerAddr, socklen_t addrLen);
+void  ClearPeerRestriction();
 void  setOpts(const char *who, int iofd);
 int   setSegSz(const char *who, int iofd);
 };

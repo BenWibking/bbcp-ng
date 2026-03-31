@@ -60,7 +60,13 @@ int              Create_Path();
 
 int              Decode(char *buff, char *xName=0);
 
+static char     *DecodeOpaque(const char *text);
+
+char            *Encode();
+
 int              Encode(char *buff, size_t blen);
+
+static char     *EncodeOpaque(const char *data);
 
 bool             ExtendFileSpec(int &numF, int &numL, int slOpt);
 

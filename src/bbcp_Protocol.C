@@ -415,16 +415,16 @@ int bbcp_Protocol::Process_flist()
 {
    bbcp_FileSpec *dp = bbcp_Config.srcPath;
    bbcp_FileSpec *fp = bbcp_Config.srcSpec;
-   char buff[4096];
-   int blen;
+   char *buff;
    const char eoltag[] = "eol\n";
    const int  eoltsz   = strlen(eoltag);
 
 // Simply go through the list of paths and report them back to the caller
 
    while(dp)
-      {if ((blen = dp->Encode(buff,(size_t)sizeof(buff))) < 0) return -1;
-       if (Remote->Put(buff, blen)) return -1;
+      {if (!(buff = dp->Encode())) return -1;
+       if (Remote->Put(buff, strlen(buff))) {free(buff); return -1;}
+       free(buff);
        dp = dp->next;
       }
 
@@ -432,8 +432,9 @@ int bbcp_Protocol::Process_flist()
 
    while(fp) 
       {if (fp->Info.Otype != 'd' || *(fp->filename))
-          {if ((blen = fp->Encode(buff,(size_t)sizeof(buff))) < 0) return -1;
-           if (Remote->Put(buff, blen)) return -1;
+          {if (!(buff = fp->Encode())) return -1;
+           if (Remote->Put(buff, strlen(buff))) {free(buff); return -1;}
+           free(buff);
           }
        fp = fp->next;
       }
@@ -450,7 +451,7 @@ int bbcp_Protocol::Process_flist()
 int bbcp_Protocol::Process_get()
 {
    bbcp_FileSpec *pp = 0, *fp = bbcp_Config.srcSpec;
-   char *wp;
+   char *wp, *fname = 0;
    int retc;
    int   fnum, snum;
    long long foffset = 0;
@@ -467,15 +468,18 @@ int bbcp_Protocol::Process_get()
    if (bbcp_Config.a2n("file number", wp, fnum, 0, 0x7ffffff))  return 19;
    if (!(wp = Remote->GetToken()))
       {bbcp_Fmsg("Process_get", "missing file name.");   return 19;}
+   if (!(fname = bbcp_FileSpec::DecodeOpaque(wp)))
+      {bbcp_Fmsg("Process_get", "invalid encoded file name."); return 19;}
 
 // Locate the file
 //
-   while(fp && (fp->seqno != fnum || strcmp(wp, fp->filereqn)))
+   while(fp && (fp->seqno != fnum || strcmp(fname, fp->filereqn)))
         {pp = fp; fp=fp->next;}
    if (!fp)
       {char buff[64];
        snprintf(buff, sizeof(buff), "%d", fnum);
-       bbcp_Fmsg("Process_get", "file '", buff, wp, "' not found.");
+       bbcp_Fmsg("Process_get", "file '", buff, fname, "' not found.");
+       free(fname);
        return 2;
       }
 
@@ -488,11 +492,13 @@ int bbcp_Protocol::Process_get()
 // Get the optional offset
 //
    if ((wp = Remote->GetToken()))
-      {if (bbcp_Config.a2ll("file offset", wp, foffset, 0, -1)) return 22;
+      {if (bbcp_Config.a2ll("file offset", wp, foffset, 0, -1))
+          {free(fname); return 22;}
        if (foffset > fp->Info.size)
           {char buff[128];
            snprintf(buff, sizeof(buff), "(%lld>%lld)", foffset, fp->Info.size);
            bbcp_Fmsg("Process_get","Invalid offset",buff,"for",fp->pathname);
+           free(fname);
            return 29;
           }
        fp->targetsz = foffset;
@@ -500,7 +506,8 @@ int bbcp_Protocol::Process_get()
 
 // Send the response
 //
-   if (Remote->Put(getack, getaln)) return 1;
+   if (Remote->Put(getack, getaln)) {free(fname); return 1;}
+   free(fname);
 
 // Send the file changing the sequence number to that requested by the caller
 //
@@ -857,7 +864,7 @@ int bbcp_Protocol::Request_flist(long long &totsz, int &numlinks, bool dotrim)
 int bbcp_Protocol::Request_get(bbcp_FileSpec *fp)
 {
    int blen;
-   char *wp, buff[2048];
+   char *wp, *pathText, *buff;
 
 // Make sure there is enough space for this file
 //
@@ -869,12 +876,22 @@ int bbcp_Protocol::Request_get(bbcp_FileSpec *fp)
 
 // Construct the get command
 //
-   blen = snprintf(buff, sizeof(buff)-1, "get 0 %d %s %lld\n",
-                   fp->seqno, fp->filereqn, fp->targetsz);
+   if (!(pathText = bbcp_FileSpec::EncodeOpaque(fp->filereqn))) return 1;
+   blen = snprintf((char *)0, 0, "get 0 %d %s %lld\n",
+                   fp->seqno, pathText, fp->targetsz);
+   buff = (char *)malloc(blen+1);
+   if (!buff)
+      {free(pathText);
+       return bbcp_Emsg("Request_get", errno, "allocating request buffer");
+      }
+   snprintf(buff, blen+1, "get 0 %d %s %lld\n",
+            fp->seqno, pathText, fp->targetsz);
+   free(pathText);
 
 // Send off the command
 //
-   if (Remote->Put(buff, blen)) return 1;
+   if (Remote->Put(buff, blen)) {free(buff); return 1;}
+   free(buff);
 
 // Get the response
 //
@@ -1109,10 +1126,16 @@ int bbcp_Protocol::SendArgs(bbcp_Node *Node, bbcp_FileSpec *fsp,
 //
    apnt[1] = (char *)"\n"; alen[1] = 1; apnt[2] = 0; alen[2] = 0;
    while(fsp)
-        {apnt[0] = fsp->pathname; alen[0] = strlen(fsp->pathname);
+        {if (!(apnt[0] = bbcp_FileSpec::EncodeOpaque(fsp->pathname)))
+             return bbcp_Emsg("Protocol", errno, "encoding file arguments for",
+                              Node->NodeName());
+         alen[0] = strlen(apnt[0]);
          if (Node->Put(apnt, alen) < 0)
+            {free(apnt[0]);
              return bbcp_Emsg("Protocol", errno, "sending file arguments to",
                                Node->NodeName());
+            }
+         free(apnt[0]);
          fsp = fsp->next;
         }
 

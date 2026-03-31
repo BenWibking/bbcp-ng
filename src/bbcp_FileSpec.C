@@ -52,13 +52,10 @@ extern bbcp_Config   bbcp_Config;
 /*                     L o c a l   D e f i n i t i o n s                      */
 /******************************************************************************/
 
-// <seqno> <fnode> <inode> <mode> <size> <acctime> <modtime> <group> <fname>
+// <seqno> <fnode> <inode> <mode> <size> <acctime> <modtime>
+// <group-hex> <path-hex> <slink-hex>
 //
-#define bbcp_ENFMT "%d %c %lld %o %lld %lx %lx %s %s%s%s\n"
-#define bbcp_DEFMT "%d %c %lld %o %lld %lx %lx %31s %2054s"
-#define bbcp_DEGMT "%d %c %Ld  %o %Ld  %lx %lx %31s %2054s"
-
-#define SpaceAlt 0x1a
+#define bbcp_ENFMT "%d %c %lld %o %lld %lx %lx %s %s %s\n"
 
 int bbcp_FileSpec::trimDir = 0;
 
@@ -81,6 +78,28 @@ bool hasDotDot(const char *path)
        if (*pp == '/') pp++;
       }
    return false;
+}
+
+char *nextField(char **cursor)
+{
+   char *start;
+
+   if (!cursor || !*cursor) return 0;
+   while(**cursor == ' ') (*cursor)++;
+   if (!(**cursor)) return 0;
+
+   start = *cursor;
+   while(**cursor && **cursor != ' ') (*cursor)++;
+   if (**cursor) *(*cursor)++ = '\0';
+   return start;
+}
+
+int hexValue(char x)
+{
+        if (x >= '0' && x <= '9') return x - '0';
+   else if (x >= 'a' && x <= 'f') return x - 'a' + 10;
+   else if (x >= 'A' && x <= 'F') return x - 'A' + 10;
+   return -1;
 }
 };
   
@@ -265,114 +284,166 @@ int bbcp_FileSpec::Create_Path()
   
 int bbcp_FileSpec::Decode(char *buff, char *xName)
 {
-   static const char LwrCase = 0x20;
-   char gnbuff[64], *Space;
-   char fnbuff[2056], *fmt = (char *)bbcp_DEFMT;
-   int xtry=1, n;
+   char *cursor = buff, *tok[10], *pathText, *groupText, *slinkText;
+   int i;
+   char *endP;
 
-// Decode the specification
-//
-   do {n = sscanf(buff, fmt, &seqno, &Info.Otype, &Info.fileid, &Info.mode,
-                  &Info.size, &Info.atime, &Info.mtime, gnbuff, fnbuff);
-       fmt = (char *)bbcp_DEGMT;
-      } while(xtry-- && n != 9);
+   for (i = 0; i < 10; i++)
+      if (!(tok[i] = nextField(&cursor))) break;
 
-// Make sure it is correct
-//
-   if (n != 9) 
-      {snprintf(fnbuff, sizeof(fnbuff),
-                "Unable to decode item %d in file specification from", n+1);
-       return bbcp_Fmsg("Decode", fnbuff, (xName ? xName : hostname));
+   if (i == 10 && !nextField(&cursor))
+      {
+       seqno = strtol(tok[0], &endP, 10);
+       if (*endP || strlen(tok[1]) != 1)
+          return bbcp_Fmsg("Decode", "Invalid file specification from",
+                           (xName ? xName : hostname));
+       Info.Otype = tok[1][0];
+       Info.fileid = strtoll(tok[2], &endP, 10);
+       if (*endP) return bbcp_Fmsg("Decode", "Invalid file identifier from",
+                                   (xName ? xName : hostname));
+       Info.mode = strtol(tok[3], &endP, 8);
+       if (*endP) return bbcp_Fmsg("Decode", "Invalid file mode from",
+                                   (xName ? xName : hostname));
+       Info.size = strtoll(tok[4], &endP, 10);
+       if (*endP) return bbcp_Fmsg("Decode", "Invalid file size from",
+                                   (xName ? xName : hostname));
+       Info.atime = strtol(tok[5], &endP, 16);
+       if (*endP) return bbcp_Fmsg("Decode", "Invalid access time from",
+                                   (xName ? xName : hostname));
+       Info.mtime = strtol(tok[6], &endP, 16);
+       if (*endP) return bbcp_Fmsg("Decode", "Invalid modification time from",
+                                   (xName ? xName : hostname));
+
+       groupText = DecodeOpaque(tok[7]);
+       pathText  = DecodeOpaque(tok[8]);
+       slinkText = DecodeOpaque(tok[9]);
+       if (!groupText || !pathText || !slinkText)
+          {if (groupText) free(groupText);
+           if (pathText)  free(pathText);
+           if (slinkText) free(slinkText);
+           return bbcp_Fmsg("Decode", "Invalid encoded pathname data from",
+                            (xName ? xName : hostname));
+          }
+
+       pathname = filename = fspec = pathText;
+       filereqn = fspec;
+       if (Info.Group) free(Info.Group);
+       Info.Group = groupText;
+       if (Info.SLink) {free(Info.SLink); Info.SLink = 0;}
+       if (*slinkText) Info.SLink = slinkText;
+          else free(slinkText);
+       return 0;
       }
-
-// Prehandle symlinks
-//
-   if (Info.Otype == 'l' || Info.Otype == 'L')
-      {*(fnbuff+Info.size) = 0;
-       Info.SLink = strdup(fnbuff+Info.size+1);
-      }
-
-// Set up our structure
-//
-   pathname = filename = fspec = strdup(fnbuff);
-   if (Info.Group) free(Info.Group);
-   Info.Group = strdup(gnbuff);
-
-// Apply space conversion to the group name
-//
-   while((Space = index(Info.Group, SpaceAlt))) *Space++ = ' ';
-
-// Check if we need to reconvert the file specification by replacing alternate
-// space characters with actual spaces.
-//
-   if (!(Info.Otype & LwrCase))
-      {filereqn = fspec2 = strdup(fnbuff); Space = fspec; Info.Otype |= LwrCase;
-       while((Space = index(Space, SpaceAlt))) *Space++ = ' ';
-       if (Info.SLink && (Space = index(Info.SLink, SpaceAlt)))
-          do {*Space++ = ' ';} while((Space = index(Space, SpaceAlt)));
-      } else filereqn = fspec;
-
-// All done
-//
-   return 0;
+   return bbcp_Fmsg("Decode", "Invalid encoded file specification from",
+                    (xName ? xName : hostname));
 }
 
 /******************************************************************************/
 /*                                E n c o d e                                 */
 /******************************************************************************/
 
-int bbcp_FileSpec::Encode(char *buff, size_t blen)
+char *bbcp_FileSpec::Encode()
 {
-   static const char UprCase = 0xdf;
-   const char *slSep, *slXeq;
-   char grpBuff[64], *Space, *theGrp, Otype = Info.Otype;
-   long long theSize;
-   bool isSL = Info.SLink != 0;
+   char *grpText, *pathText, *slinkText, *buff;
    int n;
 
-// We have postponed handling spaces in file names until encode time. If there
-// spaces, we need to substitute them with a space char and tell the receiver
-// to reformat the name by upper-casing the object type. This is a symetric
-// operation.
-//
-   if ((Space = index(filename, ' ')))
-      {filereqn = fspec2 = strdup(filename); Otype &= UprCase;
-       Space = filereqn + (Space - filename);
-       do {*Space = SpaceAlt;} while((Space = index(Space+1, ' ')));
+   grpText  = EncodeOpaque(Info.Group);
+   pathText = EncodeOpaque(filereqn);
+   slinkText = EncodeOpaque(Info.SLink);
+   if (!grpText || !pathText || !slinkText)
+      {if (grpText) free(grpText);
+       if (pathText) free(pathText);
+       if (slinkText) free(slinkText);
+       bbcp_Fmsg("Encode", "unable to encode file specification.");
+       return 0;
       }
 
-// If we have symlink data then we need to encode spaces there as well
-//
-   if (isSL && (Space = index(Info.SLink, ' ')))
-      {Otype &= UprCase;
-       do {*Space = SpaceAlt;} while((Space = index(Space+1, ' ')));
+   n = snprintf((char *)0, 0, bbcp_ENFMT, seqno, Info.Otype, Info.fileid,
+                Info.mode, Info.size, Info.atime, Info.mtime,
+                grpText, pathText, slinkText);
+   if (n < 0)
+      {free(grpText); free(pathText); free(slinkText);
+       bbcp_Fmsg("Encode", "stat format error.");
+       return 0;
       }
 
-// Convert spaces in the group name to an alternate character
-//
-   if ((Space = index(Info.Group, ' ')))
-      {strncpy(grpBuff, Info.Group, sizeof(grpBuff)-1);
-       grpBuff[sizeof(grpBuff)-1] = 0;
-       while((Space = index(grpBuff, ' '))) *Space++ = SpaceAlt;
-       theGrp = grpBuff;
-      } else theGrp = Info.Group;
+   buff = (char *)malloc(n+1);
+   if (!buff)
+      {free(grpText); free(pathText); free(slinkText);
+       bbcp_Emsg("Encode", errno, "allocating encoded file specification");
+       return 0;
+      }
 
-// Prepare for format
-//
-   if (isSL) {slXeq = Info.SLink; slSep = ":"; theSize = strlen(filereqn);}
-      else   {slXeq = "";         slSep = "";  theSize = Info.size;}
+   snprintf(buff, n+1, bbcp_ENFMT, seqno, Info.Otype, Info.fileid,
+            Info.mode, Info.size, Info.atime, Info.mtime,
+            grpText, pathText, slinkText);
+   free(grpText);
+   free(pathText);
+   free(slinkText);
+   return buff;
+}
 
-// Format the specification
-//
-   n = snprintf(buff, blen, bbcp_ENFMT, seqno, Otype, Info.fileid,
-                Info.mode, theSize, Info.atime, Info.mtime, theGrp,
-                filereqn, slSep, slXeq);
+int bbcp_FileSpec::Encode(char *buff, size_t blen)
+{
+   char *text = Encode();
+   size_t tlen;
 
-// Make sure all went well
-//
-   if (n < 0)     return bbcp_Fmsg("Encode", "stat format error.");
-   if (n >= blen) return bbcp_Fmsg("Encode", "buffer overflow.");
-   return n;
+   if (!text) return -1;
+   tlen = strlen(text);
+   if (tlen >= blen)
+      {free(text);
+       return bbcp_Fmsg("Encode", "buffer overflow.");
+      }
+   memcpy(buff, text, tlen+1);
+   free(text);
+   return (int)tlen;
+}
+
+/******************************************************************************/
+/*                           O p a q u e  C o d e c                           */
+/******************************************************************************/
+
+char *bbcp_FileSpec::EncodeOpaque(const char *data)
+{
+   static const char hexTab[] = "0123456789abcdef";
+   const unsigned char *inP = (const unsigned char *)(data ? data : "");
+   size_t dlen = strlen((const char *)inP), i;
+   char *buff = (char *)malloc(dlen*2 + 1);
+
+   if (!buff)
+      {bbcp_Emsg("EncodeOpaque", errno, "allocating protocol escape buffer");
+       return 0;
+      }
+   for (i = 0; i < dlen; i++)
+      {buff[i*2]   = hexTab[(inP[i] >> 4) & 0x0f];
+       buff[i*2+1] = hexTab[ inP[i]       & 0x0f];
+      }
+   buff[dlen*2] = '\0';
+   return buff;
+}
+
+char *bbcp_FileSpec::DecodeOpaque(const char *text)
+{
+   size_t tlen, i;
+   char *buff;
+   int hi, lo;
+
+   if (!text) return 0;
+   tlen = strlen(text);
+   if (tlen & 1) return 0;
+   buff = (char *)malloc(tlen/2 + 1);
+   if (!buff)
+      {bbcp_Emsg("DecodeOpaque", errno, "allocating protocol decode buffer");
+       return 0;
+      }
+   for (i = 0; i < tlen; i += 2)
+      {hi = hexValue(text[i]);
+       lo = hexValue(text[i+1]);
+       if (hi < 0 || lo < 0) {free(buff); return 0;}
+       buff[i/2] = (char)((hi << 4) | lo);
+      }
+   buff[tlen/2] = '\0';
+   return buff;
 }
  
 /******************************************************************************/
@@ -738,8 +809,8 @@ int bbcp_FileSpec::Stat(int complain)
   
 int bbcp_FileSpec::WriteSigFile()
 {
-    int outfd, blen;
-    char buff[2048];
+    int outfd;
+    char *buff;
     bbcp_Stream sfStream;
 
 // Open the sigfile
@@ -749,10 +820,16 @@ int bbcp_FileSpec::WriteSigFile()
 
 // Create a signature and write it out
 //
+   if (!(buff = Encode()))
+      {sfStream.Close();
+       return bbcp_Fmsg("WriteSigFile","Unable to create restart file",targsigf);
+      }
    sfStream.Attach(outfd);
-   if ((blen = Encode(buff, sizeof(buff))) < 0
-   ||  sfStream.Put(buff, (size_t)blen)    < 0)
-      return bbcp_Fmsg("WriteSigFile","Unable to create restart file",targsigf);
+   if (sfStream.Put(buff, strlen(buff)) < 0)
+      {free(buff);
+       return bbcp_Fmsg("WriteSigFile","Unable to create restart file",targsigf);
+      }
+   free(buff);
 
 // All done
 //

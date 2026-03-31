@@ -582,10 +582,18 @@ void bbcp_Config::Arguments(int argc, char **argv, int cfgfd)
 //
    while(arglist.getarg(notctl))
         {lfsp = srcLast;
+         char *rawArg = arglist.argval;
          srcLast = new bbcp_FileSpec;
          if (lfsp) lfsp->next = srcLast;
             else srcSpec = srcLast;
-         srcLast->Parse(arglist.argval, isProg);
+         if (notctl)
+            {if (!(rawArg = bbcp_FileSpec::DecodeOpaque(arglist.argval)))
+                {bbcp_Fmsg("Config", "Invalid encoded file argument.");
+                 Cleanup(1, argv[0], cfgfd);
+                }
+            }
+         srcLast->Parse(rawArg, isProg);
+         if (notctl) free(rawArg);
          if (srcLast->username && !srcLast->hostname)
             Hmsg2("Missing host name for user", srcLast->username);
          if (srcLast->hostname && !srcLast->pathname)

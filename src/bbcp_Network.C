@@ -84,6 +84,7 @@ bbcp_Network::bbcp_Network()
    ATune      = 0;
    netQoS     = 0;
    peerHost   = 0;
+   peerAddrs  = 0;
    accWait    = 30000;
    Sender     = 0;
    Window     = 0;
@@ -224,8 +225,40 @@ bbcp_Link *bbcp_Network::Accept()
 
 void bbcp_Network::RestrictPeer(const char *host)
 {
-   if (peerHost) {free(peerHost); peerHost = 0;}
-   if (host && *host) peerHost = strdup(host);
+   struct addrinfo hints, *rP = 0;
+   char hostBuff[NI_MAXHOST+1], *hName = (char *)host;
+   int rc;
+
+   ClearPeerRestriction();
+   if (!host || !*host) return;
+
+   if (*hName == '[')
+      {size_t hLen = strlen(hName);
+       if (hLen < 3 || hName[hLen-1] != ']')
+          {bbcp_Fmsg("RestrictPeer", "Invalid peer host specification", hName);
+           return;
+          }
+       if (hLen-1 >= sizeof(hostBuff))
+          {bbcp_Fmsg("RestrictPeer", "Peer host specification is too long.", hName);
+           return;
+          }
+       memcpy(hostBuff, hName+1, hLen-2);
+       hostBuff[hLen-2] = '\0';
+       hName = hostBuff;
+      }
+
+   peerHost = strdup(host);
+   memset(&hints, 0, sizeof(hints));
+   hints.ai_family   = AF_UNSPEC;
+   hints.ai_socktype = SOCK_STREAM;
+   hints.ai_flags    = AI_ADDRCONFIG;
+   rc = getaddrinfo(hName, 0, &hints, &rP);
+   if (rc || !rP)
+      {bbcp_Fmsg("RestrictPeer", "Unable to resolve expected peer", peerHost);
+       ClearPeerRestriction();
+       return;
+      }
+   peerAddrs = rP;
 }
   
 /******************************************************************************/
@@ -345,38 +378,32 @@ bbcp_Link *bbcp_Network::Connect(char *host, int port, int retries, int rwait)
 
 int bbcp_Network::PeerOK(const struct sockaddr *peerAddr, socklen_t addrLen)
 {
-   struct addrinfo hints, *rP = 0, *aP;
+   struct addrinfo *aP;
    bbcp_NetAddr actual(peerAddr), expected;
-   char hostBuff[NI_MAXHOST+1], *hName = peerHost;
-   int rc, port;
+   int port;
 
    (void)addrLen;
    if (!peerHost || !*peerHost) return 1;
+   if (!peerAddrs) return 0;
    if ((port = actual.Port()) < 0) return 0;
 
-   if (*hName == '[')
-      {size_t hLen = strlen(hName);
-       if (hLen < 3 || hName[hLen-1] != ']') return 0;
-       if (hLen-1 >= sizeof(hostBuff)) return 0;
-       memcpy(hostBuff, hName+1, hLen-2);
-       hostBuff[hLen-2] = '\0';
-       hName = hostBuff;
-      }
-
-   memset(&hints, 0, sizeof(hints));
-   hints.ai_family   = peerAddr->sa_family;
-   hints.ai_socktype = SOCK_STREAM;
-   hints.ai_flags    = AI_ADDRCONFIG;
-   if ((rc = getaddrinfo(hName, 0, &hints, &rP)) || !rP) return 0;
-
-   for (aP = rP; aP; aP = aP->ai_next)
+   for (aP = peerAddrs; aP; aP = aP->ai_next)
        {if (aP->ai_family != peerAddr->sa_family) continue;
         expected.Set(aP, port);
-        if (actual.Same(&expected)) {freeaddrinfo(rP); return 1;}
+        if (actual.Same(&expected)) return 1;
        }
 
-   freeaddrinfo(rP);
    return 0;
+}
+
+/******************************************************************************/
+/*                     P r i v a t e : C l e a r P e e r                      */
+/******************************************************************************/
+
+void bbcp_Network::ClearPeerRestriction()
+{
+   if (peerHost) {free(peerHost); peerHost = 0;}
+   if (peerAddrs) {freeaddrinfo(peerAddrs); peerAddrs = 0;}
 }
 
 /******************************************************************************/
