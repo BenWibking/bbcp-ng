@@ -321,7 +321,8 @@ int bbcp_Protocol::Process(bbcp_Node *Node)
    &&  (bbcp_Config.rtLockd = bbcp_Config.SecureOpen(bbcp_Config.rtLockf,
                                                      O_RDONLY, 0, 0, 1)) < 0)
       {rc = errno, NoGo = 1;
-       bbcp_Emsg("Config", rc, "opening lock file", bbcp_Config.rtLockf);
+       bbcp_Emsg("Config", rc, "opening lock file",
+                 bbcp_ProtocolPath(bbcp_Config.rtLockf));
       }
 
 // Make sure all of the source files exist at this location. If there is an

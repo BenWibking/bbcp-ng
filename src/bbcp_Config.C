@@ -1295,24 +1295,42 @@ int bbcp_Config::SecureOpen(const char *path, int flags, mode_t mode,
 {
    char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
    struct stat sbuf;
-   int fd, rc;
+   int dfd = -1, fd = -1, rc;
 
+   if ((rc = bbcp_SplitPath(path, dirbuf, sizeof(dirbuf),
+                            filebuf, sizeof(filebuf)))) return rc;
    if (requireSafeDir)
-      {if ((rc = bbcp_SplitPath(path, dirbuf, sizeof(dirbuf),
-                                filebuf, sizeof(filebuf)))) return rc;
-       if ((rc = EnsureSafeDir(dirbuf, 0700, 0))) return rc;
-      }
+      if ((rc = EnsureSafeDir(dirbuf, 0700, 0))) return rc;
+   if ((dfd = bbcp_OpenPathDir(path, dirbuf, sizeof(dirbuf),
+                               filebuf, sizeof(filebuf))) < 0) return dfd;
 #ifdef O_NOFOLLOW
    flags |= O_NOFOLLOW;
 #endif
+#if defined(AT_FDCWD)
+   do {fd = (mode ? openat(dfd, filebuf, flags, mode)
+                  : openat(dfd, filebuf, flags));}
+      while(fd < 0 && errno == EINTR);
+#else
    do {fd = (mode ? open(path, flags, mode) : open(path, flags));}
       while(fd < 0 && errno == EINTR);
-   if (fd < 0) return fd;
+#endif
+   if (fd < 0)
+      {rc = errno;
+       close(dfd);
+       errno = rc;
+       return -1;
+      }
    if (requireRegular)
       {if (fstat(fd, &sbuf))
-          {rc = errno; close(fd); errno = rc; return -1;}
+          {rc = errno; close(fd); close(dfd); errno = rc; return -1;}
        if (!S_ISREG(sbuf.st_mode))
-          {close(fd); errno = EPERM; return -1;}
+          {close(fd); close(dfd); errno = EPERM; return -1;}
+      }
+   if (close(dfd))
+      {rc = errno;
+       close(fd);
+       errno = rc;
+       return -1;
       }
    return fd;
 }
@@ -1333,14 +1351,8 @@ int bbcp_Config::SecureReplace(const char *path, const char *data, size_t dlen,
                             filebuf, sizeof(filebuf)))) return rc;
    if (requireSafeDir)
       {if ((rc = EnsureSafeDir(dirbuf, 0700, 0))) return rc;}
-   do {
-#ifdef O_DIRECTORY
-       dfd = open(dirbuf, O_RDONLY|O_DIRECTORY);
-#else
-       dfd = open(dirbuf, O_RDONLY);
-#endif
-      } while(dfd < 0 && errno == EINTR);
-   if (dfd < 0) return -errno;
+   if ((dfd = bbcp_OpenPathDir(path, dirbuf, sizeof(dirbuf),
+                               filebuf, sizeof(filebuf))) < 0) return dfd;
 
    if (snprintf(tmpbuf, sizeof(tmpbuf), "%s/.bbcp.tmp.%ld.XXXXXX",
                 dirbuf, (long)getpid()) >= (int)sizeof(tmpbuf))
