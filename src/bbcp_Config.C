@@ -882,7 +882,7 @@ void bbcp_Config::Display()
    cerr <<"mode " <<oct <<Mode <<dec <<endl;
    cerr <<"myhost " <<MyHost <<endl;
    cerr <<"myuser " <<MyUser <<endl;
-   cerr <<"ssectoken " <<SecToken <<endl;
+   cerr <<"ssectoken [redacted]" <<endl;
    cerr <<"streams " <<Streams <<endl;
    cerr <<"wsize " <<Wsize <<" maxwindow " <<MaxWindow  <<" maxss " <<MaxSegSz <<endl;
    cerr <<"srcxeq " <<SrcXeq <<endl;

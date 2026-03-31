@@ -507,13 +507,22 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
        Report(ttime, fp, outFile, cxp);
       }
 
+// Apply final metadata to the opened file descriptor so a path swap after
+// open cannot redirect permissions, timestamps, or group changes.
+//
+   if (!retc && !(bbcp_Config.Options & bbcp_XPIPE))
+      {if (bbcp_Config.Options & bbcp_PCOPY) fp->setStatFD(outFile->ioFD(),
+                                                           bbcp_Config.Mode);
+          else fp->setModeFD(outFile->ioFD(), bbcp_Config.Mode);
+      }
+
 // All done
 //
    Parent_Monitor.Stop();
                 delete outFile;
    if (cxp)     delete(cxp);
    if (seqFile) delete(seqFile);
-   retc = fp->Finalize(retc);
+   retc = fp->FinalizeX(retc, 0);
    close(1); close(2);
    DEBUG("Process " <<getpid() <<" exiting with rc=" <<retc);
    exit(retc);

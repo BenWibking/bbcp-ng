@@ -65,14 +65,17 @@ int              Encode(char *buff, size_t blen);
 bool             ExtendFileSpec(int &numF, int &numL, int slOpt);
 
 int              Finalize(int retc=0);
+int              FinalizeX(int retc, int setMode);
 
 bbcp_FileSystem *FSys() {return FSp;}
 
 void             Parse(char *spec, int isPipe=0);
 
 int              setMode(mode_t Mode);
+int              setModeFD(int fd, mode_t Mode);
 
 int              setStat(mode_t Mode);
+int              setStatFD(int fd, mode_t Mode);
 
 void             setTrim();
 

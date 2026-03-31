@@ -67,6 +67,21 @@ namespace
 bbcp_Set *pathSet = 0;
 
 bbcp_FileSpec* lastp = 0;
+
+bool hasDotDot(const char *path)
+{
+   const char *pp = path;
+
+   if (!path || !*path) return false;
+   if (*pp == '/') return true;
+   while(*pp)
+      {const char *seg = pp;
+       while(*pp && *pp != '/') pp++;
+       if ((pp - seg) == 2 && seg[0] == '.' && seg[1] == '.') return true;
+       if (*pp == '/') pp++;
+      }
+   return false;
+}
 };
   
 /******************************************************************************/
@@ -162,6 +177,8 @@ int bbcp_FileSpec::Compose(long long did, char *dpath, int dplen, char *fname)
 
 // Set up the target file name
 //
+   if (hasDotDot(fn+trimDir))
+      return bbcp_Fmsg("Compose", "Invalid target path component for", fn);
    n = dplen + 1 + strlen(fn) + 1;
    if (targpath) free(targpath);
    targpath = (char *)malloc(n);
@@ -465,6 +482,11 @@ bool bbcp_FileSpec::ExtendFileSpec(int &numF, int &numL, int slOpt)
   
 int bbcp_FileSpec::Finalize(int retc)
 {
+   return FinalizeX(retc, 1);
+}
+
+int bbcp_FileSpec::FinalizeX(int retc, int setMode)
+{
 
 // If an error occured, see what we should do
 //
@@ -472,8 +494,10 @@ int bbcp_FileSpec::Finalize(int retc)
       {if (bbcp_Config.Options & (bbcp_KEEP|bbcp_NOUNLINK)) return retc;
        FSp->RM(targpath);
       }
-      else if (bbcp_Config.Options & bbcp_PCOPY) setStat(bbcp_Config.Mode);
-              else FSp->setMode(targpath, bbcp_Config.Mode);
+      else if (setMode)
+              {if (bbcp_Config.Options & bbcp_PCOPY) setStat(bbcp_Config.Mode);
+                  else FSp->setMode(targpath, bbcp_Config.Mode);
+              }
 
 // Delete the signature file if one exists
 //
@@ -571,6 +595,16 @@ int bbcp_FileSpec::setMode(mode_t Mode)
    return 0;
 }
 
+int bbcp_FileSpec::setModeFD(int fd, mode_t Mode)
+{
+   int retc;
+
+   if (!FSp) return bbcp_Fmsg("setModeFD", "no filesystem for", targpath);
+   if ((retc = FSp->setModeFD(fd, Mode)))
+      bbcp_Emsg("setModeFD", -retc, "setting mode on", targpath);
+   return 0;
+}
+
 /******************************************************************************/
 /*                               s e t S t a t                                */
 /******************************************************************************/
@@ -603,6 +637,28 @@ int bbcp_FileSpec::setStat(mode_t Mode)
 // Check if any errors occured (we ignore these just like cp/scp does)
 //
    if (act) bbcp_Emsg("setStat", -retc, act, targpath);
+   return 0;
+}
+
+int bbcp_FileSpec::setStatFD(int fd, mode_t Mode)
+{
+   char *act =  0;
+   int retc, ecode = 0;
+
+   if (!FSp) return bbcp_Fmsg("setStatFD", "no filesystem for", targpath);
+
+   if ((retc = FSp->setTimesFD(fd, Info.atime, Info.mtime)))
+      {act = (char *)"setting time on"; ecode = retc;}
+
+   if (!(bbcp_Config.Options & bbcp_PTONLY)) Mode = Info.mode;
+   if ((retc = FSp->setModeFD(fd, Mode)))
+      {act = (char *)"setting mode on"; ecode = retc;}
+
+   if (!(bbcp_Config.Options & bbcp_PTONLY) && Info.Group)
+      if ((retc = FSp->setGroupFD(fd, Info.Group)))
+         {act = (char *)"setting group on"; ecode = retc;}
+
+   if (act) bbcp_Emsg("setStatFD", -ecode, act, targpath);
    return 0;
 }
   

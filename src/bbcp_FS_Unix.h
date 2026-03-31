@@ -55,10 +55,13 @@ int        MKLnk(const char *ldata, const char *path);
 int        RM(const char *path);
 
 int        setGroup(const char *path, const char *Group);
+int        setGroupFD(int fd, const char *Group);
 
 int        setMode(const char *path, mode_t mode);
+int        setModeFD(int fd, mode_t mode);
 
 int        setTimes(const char *path, time_t atime, time_t mtime);
+int        setTimesFD(int fd, time_t atime, time_t mtime);
 
 int        Stat(const char *path, bbcp_FileInfo *finfo=0);
 

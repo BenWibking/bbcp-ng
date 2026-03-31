@@ -117,14 +117,18 @@ virtual int        RM(const char *path)=0;
 // Set the group information for a file & return 0. Returns -errno upon error.
 //
 virtual int        setGroup(const char *path, const char *Group)=0;
+virtual int        setGroupFD(int fd, const char *Group) {return -ENOTSUP;}
 
 // Set the mode on a file & return 0. Returns -errno upon error.
 //
 virtual int        setMode(const char *path, mode_t mode)=0;
+virtual int        setModeFD(int fd, mode_t mode) {return -ENOTSUP;}
 
 // Set access and modification time & return 0. Returns -errno upon error.
 //
 virtual int        setTimes(const char *path, time_t atime, time_t mtime)=0;
+virtual int        setTimesFD(int fd, time_t atime, time_t mtime)
+                         {return -ENOTSUP;}
 
 // Returns information about a file or directory in the FileInfo structure and
 // zero if all went well. Otherwise return -errno.

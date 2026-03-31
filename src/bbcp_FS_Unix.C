@@ -36,6 +36,7 @@
 #include <unistd.h>
 #include <utime.h>
 #include <sys/param.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #ifndef FREEBSD
@@ -213,6 +214,9 @@ bbcp_File *bbcp_FS_Unix::Open(const char *fn, int opts, int mode, const char *fa
 #ifdef O_DIRECT
    if (dIO) opts |= O_DIRECT;
 #endif
+#ifdef O_NOFOLLOW
+   opts |= O_NOFOLLOW;
+#endif
 
 // Open the file
 //
@@ -268,6 +272,16 @@ int bbcp_FS_Unix::setGroup(const char *path, const char *Group)
    return 0;
 }
 
+int bbcp_FS_Unix::setGroupFD(int fd, const char *Group)
+{
+    gid_t gid;
+
+   if (!Group || !Group[0]) return 0;
+   gid = bbcp_OS.getGID(Group);
+   if (fchown(fd, (uid_t)-1, gid)) return -errno;
+   return 0;
+}
+
 /******************************************************************************/
 /*                               s e t M o d e                                */
 /******************************************************************************/
@@ -275,6 +289,12 @@ int bbcp_FS_Unix::setGroup(const char *path, const char *Group)
 int bbcp_FS_Unix::setMode(const char *path, mode_t mode)
 {
     if (chmod(path, mode)) return -errno;
+    return 0;
+}
+
+int bbcp_FS_Unix::setModeFD(int fd, mode_t mode)
+{
+    if (fchmod(fd, mode)) return -errno;
     return 0;
 }
 
@@ -290,6 +310,22 @@ int bbcp_FS_Unix::setTimes(const char *path, time_t atime, time_t mtime)
     ftimes.modtime= mtime;
     if (utime(path, &ftimes)) return -errno;
     return 0;
+}
+
+int bbcp_FS_Unix::setTimesFD(int fd, time_t atime, time_t mtime)
+{
+#if defined(_POSIX_VERSION)
+    struct timeval ftimes[2];
+
+    ftimes[0].tv_sec  = atime;
+    ftimes[0].tv_usec = 0;
+    ftimes[1].tv_sec  = mtime;
+    ftimes[1].tv_usec = 0;
+    if (futimes(fd, ftimes)) return -errno;
+    return 0;
+#else
+    return -ENOTSUP;
+#endif
 }
  
 /******************************************************************************/

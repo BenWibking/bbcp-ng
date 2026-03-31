@@ -142,6 +142,11 @@ define BINARY_MSG_FORMAT
 static char *printStandardFieldsToBuffer (struct timeval *tvPtr,
 					  NL_Handle * lp, char *keyword);
 static int writeBuffer (NL_Handle * lp, char *outbuf, int buflen);
+static int nl_append_mem(NL_Handle *lp, const char *src, size_t len,
+                         char **endPtr);
+static int nl_append_cstr(NL_Handle *lp, const char *src, char **endPtr);
+static int nl_append_fmt(NL_Handle *lp, char **endPtr, const char *fmt,
+                         va_list args);
 
 char     *globtag = NULL;	/* global "tag" that gets added to all messages.
 				   This is set using the NetLoggerSetTag call */
@@ -166,6 +171,50 @@ globus_io_handle_t *SecureNetLogOpen (char *, unsigned short);
 #if NL_THREADSAFE
 pthread_mutex_t global_mutex = PTHREAD_MUTEX_INITIALIZER;
 #endif
+
+static int nl_append_mem(NL_Handle *lp, const char *src, size_t len,
+                         char **endPtr)
+{
+    size_t used = (size_t)(*endPtr - lp->message_buffer);
+
+    if (used >= NL_MAX_MESSAGE) {
+        return -1;
+    }
+    if (len >= (size_t)(NL_MAX_MESSAGE - used)) {
+        return -1;
+    }
+
+    memcpy(*endPtr, src, len);
+    *endPtr += len;
+    **endPtr = '\0';
+    return 0;
+}
+
+static int nl_append_cstr(NL_Handle *lp, const char *src, char **endPtr)
+{
+    return nl_append_mem(lp, src, strlen(src), endPtr);
+}
+
+static int nl_append_fmt(NL_Handle *lp, char **endPtr, const char *fmt,
+                         va_list args)
+{
+    size_t used = (size_t)(*endPtr - lp->message_buffer);
+    size_t avail;
+    int written;
+
+    if (used >= NL_MAX_MESSAGE) {
+        return -1;
+    }
+
+    avail = (size_t)(NL_MAX_MESSAGE - used);
+    written = vsnprintf(*endPtr, avail, fmt, args);
+    if (written < 0 || (size_t)written >= avail) {
+        return -1;
+    }
+
+    *endPtr += written;
+    return 0;
+}
 
 
 /**
@@ -571,17 +620,29 @@ NetLoggerGTWrite (NL_Handle * lp,
     if ( consts != NULL && *consts != '\0' )
     {
 	const_len = strlen(consts);
-	memcpy( endPtr,consts, const_len);
-	endPtr += const_len;
-	*endPtr++ = ' ';
+	if (nl_append_mem(lp, consts, const_len, &endPtr)
+	 || nl_append_mem(lp, " ", 1, &endPtr))
+	{
+	    rval = -1;
+	    va_end(args);
+	    goto error_return;
+	}
     }
 #endif
-    endPtr += vsprintf (endPtr, fmt, args);
+    if (nl_append_fmt(lp, &endPtr, fmt, args))
+    {
+	rval = -1;
+	va_end(args);
+	goto error_return;
+    }
     va_end (args);
 
     /* Add newline */
-    *endPtr++ = '\n';
-    *endPtr = '\0';
+    if (nl_append_mem(lp, "\n", 1, &endPtr))
+    {
+	rval = -1;
+	goto error_return;
+    }
  
     /* Write to host, file, syslog, etc. */
     if (lp->failed == 0) {
@@ -656,17 +717,29 @@ NetLoggerWrite(NL_Handle * lp,
     if ( consts != NULL && *consts != '\0' )
     {
 	const_len = strlen(consts);
-	memcpy( endPtr,consts, const_len);
-	endPtr += const_len;
-	*endPtr++ = ' ';
+	if (nl_append_mem(lp, consts, const_len, &endPtr)
+	 || nl_append_mem(lp, " ", 1, &endPtr))
+	{
+	    rval = -1;
+	    va_end(args);
+	    goto error_return;
+	}
     }
 #endif
-    endPtr += vsprintf (endPtr, fmt, args);
+    if (nl_append_fmt(lp, &endPtr, fmt, args))
+    {
+	rval = -1;
+	va_end(args);
+	goto error_return;
+    }
     va_end (args);
 
     /* Add newline */
-    *endPtr++ = '\n';
-    *endPtr = '\0';
+    if (nl_append_mem(lp, "\n", 1, &endPtr))
+    {
+	rval = -1;
+	goto error_return;
+    }
  
     /* Write to host, file, syslog, etc. */
     if (lp->failed == 0) {
@@ -742,18 +815,29 @@ NetLoggerWriteLvl( NL_Handle * lp,
 	if ( consts != NULL && *consts != '\0' )
 	{
 	    const_len = strlen(consts);
-	    memcpy( endPtr,consts, const_len);
-	    endPtr += const_len;
-	    *endPtr++ = ' ';
+	    if (nl_append_mem(lp, consts, const_len, &endPtr)
+	     || nl_append_mem(lp, " ", 1, &endPtr))
+	    {
+		rval = -1;
+		goto error_return;
+	    }
 	}
 #endif
 	va_start(args,fmt);
-	endPtr += vsprintf (endPtr, fmt, args);
+	if (nl_append_fmt(lp, &endPtr, fmt, args))
+	{
+	    rval = -1;
+	    va_end(args);
+	    goto error_return;
+	}
 	va_end (args);
 	
 	/* Add newline */
-	*endPtr++ = '\n';
-	*endPtr = '\0';
+	if (nl_append_mem(lp, "\n", 1, &endPtr))
+	{
+	    rval = -1;
+	    goto error_return;
+	}
 	
 	/* Write to host, file, syslog, etc. */
 	if (lp->failed == 0) {
@@ -886,17 +970,25 @@ NetLoggerGTWriteString(NL_Handle * lp,
 #ifndef OLD_API
     if ( const_data != NULL && *const_data != '\0' )
     {
-	strcat(lp->message_buffer, const_data );
-	strcat(lp->message_buffer," ");
+	if (nl_append_cstr(lp, const_data, &endPtr)
+	 || nl_append_mem(lp, " ", 1, &endPtr))
+	{
+	    rval = -1;
+	    goto error_return;
+	}
     }
 #endif /* OLD_API */
-    strcat(lp->message_buffer, data);
-    strcat (lp->message_buffer, "\n");
+    if (nl_append_cstr(lp, data, &endPtr)
+     || nl_append_mem(lp, "\n", 1, &endPtr))
+    {
+	rval = -1;
+	goto error_return;
+    }
 
     /* Write to host, file, syslog, etc. */
     if (lp->failed == 0) {
        rval = writeBuffer (lp, lp->message_buffer,
-			   strlen (lp->message_buffer));
+			   (int)(endPtr - lp->message_buffer));
        if (rval == -1)
           lp->failed = -1;
     }
@@ -1284,6 +1376,10 @@ printStandardFieldsToBuffer (struct timeval *tvPtr,
 {
     struct tm *tm = NULL;
     char      date_buffer[DATE_LEN];
+    char     *endPtr;
+#ifdef OLD_VERSION
+    char      date_buffer_usec[DATE_LEN];
+#endif
     int       i, usec;
     char      n[7];
 #ifdef CORRECT_TIMESTAMPS
@@ -1334,20 +1430,33 @@ printStandardFieldsToBuffer (struct timeval *tvPtr,
 #endif
       }
 
-    strcat (lp->message_buffer, "DATE=");
+    endPtr = lp->message_buffer;
+    if (nl_append_cstr(lp, "DATE=", &endPtr))
+      {
+	  return NULL;
+      }
     if (lp->last_tv_sec == tvPtr->tv_sec)
       {
-	  strcat (lp->message_buffer, lp->last_date);
+	  if (nl_append_cstr(lp, lp->last_date, &endPtr))
+	    {
+		return NULL;
+	    }
       }
     else
       {
-	  strcat (lp->message_buffer, date_buffer);
+	  if (nl_append_cstr(lp, date_buffer, &endPtr))
+	    {
+		return NULL;
+	    }
 	  strcpy (lp->last_date, date_buffer);
       }
     /* sprintf is SLOW! New version speeds up NetLoggerWrite by about 15%! */
 #ifdef OLD_VERSION
     sprintf (date_buffer_usec, "%06d", (int) tvPtr->tv_usec);
-    strcat (lp->message_buffer, date_buffer_usec);
+    if (nl_append_cstr(lp, date_buffer_usec, &endPtr))
+      {
+	  return NULL;
+      }
 #else
     /* NOTE: hardcoded for 6 digits of micro-seconds at the moment.
        would need to change this for nano seconds, etc. */
@@ -1358,33 +1467,48 @@ printStandardFieldsToBuffer (struct timeval *tvPtr,
 	  n[5 - i] = (char) (ASCII + (usec % 10));
 	  usec /= 10;
       }
-    strcat (lp->message_buffer, n);
+    if (nl_append_cstr(lp, n, &endPtr))
+      {
+	  return NULL;
+      }
 #ifdef ISO8601
     /* indicates UTC timezone: + accuracy + precision */
-    strcat (lp->message_buffer, "Zp.000001/.001");
+    if (nl_append_cstr(lp, "Zp.000001/.001", &endPtr))
+      {
+	  return NULL;
+      }
 #endif
 #endif /* old version */
-    strcat (lp->message_buffer, lp->host_prog);	/* contains HOST=h PROG=p NL.EVNT= */
-    strcat (lp->message_buffer, keyword);
-    strcat (lp->message_buffer, " ");
+    if (nl_append_cstr(lp, lp->host_prog, &endPtr)
+     || nl_append_cstr(lp, keyword, &endPtr)
+     || nl_append_mem(lp, " ", 1, &endPtr))
+      {
+	  return NULL;
+      }
     /* prepend (optional) per-handle tag */
     if ( lp->tag != NULL )
     {
-	strcat(lp->message_buffer, lp->tag );
-	strcat(lp->message_buffer," ");
+	if (nl_append_cstr(lp, lp->tag, &endPtr)
+	 || nl_append_mem(lp, " ", 1, &endPtr))
+	  {
+	      return NULL;
+	  }
     }
     /* prepend (optional) global tag */
     if (globtag)
     {
-	strcat (lp->message_buffer, globtag);
-	strcat (lp->message_buffer, " ");
+	if (nl_append_cstr(lp, globtag, &endPtr)
+	 || nl_append_mem(lp, " ", 1, &endPtr))
+	  {
+	      return NULL;
+	  }
     }
     lp->last_tv_sec = tvPtr->tv_sec;
     /* debug 
        fprintf (stderr, "built string: %s \n", lp->message_buffer);
      */
     /* return pointer to end of message */
-    return (lp->message_buffer + strlen (lp->message_buffer));
+    return endPtr;
 }
 
 /**
@@ -2133,20 +2257,37 @@ NetLoggerFastWrite (NL_Handle * lp, char *keyword, char *fmt, ...)
     if (lp->last_tv_sec != tv.tv_sec)
 	sprintf (lp->last_date, "%d", (int) tv.tv_sec);
 
-    strcat (lp->message_buffer, "DATE=");
+    endPtr = lp->message_buffer;
+    if (nl_append_cstr(lp, "DATE=", &endPtr))
+      {
+	  rval = -1;
+	  goto error_return;
+      }
     if (lp->last_tv_sec == tv.tv_sec)
     {
-       strcat (lp->message_buffer, lp->last_date);
+       if (nl_append_cstr(lp, lp->last_date, &endPtr))
+       {
+	  rval = -1;
+	  goto error_return;
+       }
     }
     else
     {
-       strcat (lp->message_buffer, date_buffer);
+       if (nl_append_cstr(lp, date_buffer, &endPtr))
+       {
+	  rval = -1;
+	  goto error_return;
+       }
        strcpy (lp->last_date, date_buffer);
     }
     /* sprintf is SLOW! New version speeds up NetLoggerWrite by about 15%! */
 #ifdef OLD_VERSION
     sprintf (date_buffer_usec, ".%06d", (int) tvPtr->tv_usec);
-    strcat (lp->message_buffer, date_buffer_usec);
+    if (nl_append_cstr(lp, date_buffer_usec, &endPtr))
+    {
+       rval = -1;
+       goto error_return;
+    }
 #else
     /* NOTE: hardcoded for 6 digits of micro-seconds at the moment.
        would need to change this for nano seconds, etc. */
@@ -2157,27 +2298,41 @@ NetLoggerFastWrite (NL_Handle * lp, char *keyword, char *fmt, ...)
 	  n[5 - i] = (char) (ASCII + (usec % 10));
 	  usec /= 10;
       }
-    strcat (lp->message_buffer, ".");
-    strcat (lp->message_buffer, n);
+    if (nl_append_cstr(lp, ".", &endPtr)
+     || nl_append_cstr(lp, n, &endPtr))
+    {
+       rval = -1;
+       goto error_return;
+    }
 #endif
 
-    strcat (lp->message_buffer, lp->host_prog);	/* contains HOST=h PROG=p NL.EVNT= */
-    strcat (lp->message_buffer, keyword);
+    if (nl_append_cstr(lp, lp->host_prog, &endPtr)
+     || nl_append_cstr(lp, keyword, &endPtr))
+    {
+       rval = -1;
+       goto error_return;
+    }
     /* prepend (optional) per-handle tag */
     if ( lp->tag != NULL )
     {
-	strcat(lp->message_buffer," ");
-	strcat(lp->message_buffer, lp->tag );
+	if (nl_append_cstr(lp, " ", &endPtr)
+	 || nl_append_cstr(lp, lp->tag, &endPtr))
+	{
+	   rval = -1;
+	   goto error_return;
+	}
     }
     /* prepend (optional) global tag */
     if (globtag)
     {
-	strcat (lp->message_buffer, " ");
-	strcat (lp->message_buffer, globtag);
+	if (nl_append_cstr(lp, " ", &endPtr)
+	 || nl_append_cstr(lp, globtag, &endPtr))
+	{
+	   rval = -1;
+	   goto error_return;
+	}
     }
     lp->last_tv_sec = tv.tv_sec;
-
-    endPtr = lp->message_buffer + strlen (lp->message_buffer);
 
     /* Add user fields to buffer. */
     first = 0;
@@ -2185,15 +2340,28 @@ NetLoggerFastWrite (NL_Handle * lp, char *keyword, char *fmt, ...)
     /* put a space before the 1st field */
     if ( first++ == 0 )
     {
-	*endPtr++ = ' ';
+	if (nl_append_cstr(lp, " ", &endPtr))
+	{
+	    rval = -1;
+	    va_end(args);
+	    goto error_return;
+	}
     }
     /* print the fields to the buffer */
-    endPtr += vsprintf (endPtr, fmt, args);
+    if (nl_append_fmt(lp, &endPtr, fmt, args))
+    {
+	rval = -1;
+	va_end(args);
+	goto error_return;
+    }
     va_end (args);
 
     /* Add newline */
-    *endPtr++ = '\n';
-    *endPtr = '\0';
+    if (nl_append_cstr(lp, "\n", &endPtr))
+    {
+       rval = -1;
+       goto error_return;
+    }
 
     /* Write to host, file, syslog, etc. */
     rval = writeBuffer (lp, lp->message_buffer,
@@ -2211,4 +2379,3 @@ NetLoggerFastWrite (NL_Handle * lp, char *keyword, char *fmt, ...)
     return rval;
 }
 #endif /* NOT_NEEDED */
-
