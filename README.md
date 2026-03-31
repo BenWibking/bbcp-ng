@@ -71,4 +71,5 @@ For the full option list, run `bbcp -h`.
 
 ## License
 
-The source headers describe `bbcp` as LGPL-licensed free software. This repository includes [`src/COPYING.LESSER`](src/COPYING.LESSER) with the license text referenced by the code.
+`bbcp` is distributed under the GNU Lesser General Public License, Version 3. The canonical license text for this repository is provided in [`LICENSE`](LICENSE).
+
