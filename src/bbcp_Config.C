@@ -103,6 +103,7 @@ extern const char    *bbcp_License;
 namespace
 {
        char lclHost[] = {'l','o','c','a','l','h','o','s','t','\0'};
+const  char *bbcp_SecTokenEnv = "BBCP_SECTOKEN";
 };
   
 /******************************************************************************/
@@ -782,6 +783,11 @@ int bbcp_Config::ConfigInit(int argc, char **argv)
 //
    signal(SIGPIPE, SIG_IGN);
 
+// Remote peers inherit the session token via the environment so it does not
+// appear in argv or debug output.
+//
+   LoadSecTokenEnv();
+
 // Make sure we have at least one argument to determine who we are
 //
    if (argc >= 2)
@@ -999,7 +1005,6 @@ void bbcp_Config::Config_Ctl(int rwbsz)
                                  if (Options & bbcp_MANTUNE) {Add_Nul(Wsize);}
                                     else      {Add_Num(Wsize);}
                                 }
-                                 Add_Opt('Y'); Add_Str(SecToken);
    if (Xrate)                   {Add_Opt('x'); Add_Num(Xrate);}
    if (SynSpec)                 {Add_Opt('y'); Add_Str(SynSpec);}
    if (Options & bbcp_CON2SRC)   Add_Opt('z');
@@ -1014,6 +1019,14 @@ void bbcp_Config::Config_Ctl(int rwbsz)
                                 }
    if (Options & (bbcp_RXONLY|bbcp_RDONLY))    Add_Opt('+');
    CopyOpts = strdup(cbuff);
+
+// Pass the session token through the environment so remote peer launches do
+// not expose it via argv.
+//
+   if (setenv(bbcp_SecTokenEnv, SecToken, 1))
+      {bbcp_Emsg("Config", errno, "exporting session token");
+       exit(8);
+      }
 }
   
 /******************************************************************************/
@@ -1088,19 +1101,46 @@ void bbcp_Config::Config_Xeq(int rwbsz)
   
 char *bbcp_Config::Rtoken()
 {
-   int mynum = (int)getpid();
-   struct timeval tod;
-   char mybuff[sizeof(mynum)*2+1];
+   char mybuff[33];
+   unsigned char myrand[16];
+   ssize_t nread = 0;
+   int RandFD;
 
-// Get current time of day and add into the random equation
+// Generate a 128-bit nonce directly from the OS RNG.
 //
-   gettimeofday(&tod, 0);
-   mynum = mynum ^ tod.tv_sec ^ tod.tv_usec ^ (tod.tv_usec<<((mynum & 0x0f)+1));
+   if ((RandFD = open("/dev/urandom", O_RDONLY)) < 0)
+      {bbcp_Emsg("Config", errno, "opening /dev/urandom for session token");
+       exit(8);
+      }
 
-// Convert to a printable string
+   while(nread < (ssize_t)sizeof(myrand))
+        {ssize_t n = read(RandFD, myrand+nread, sizeof(myrand)-nread);
+         if (n > 0) {nread += n; continue;}
+         if (n < 0 && errno == EINTR) continue;
+         bbcp_Emsg("Config", (n < 0 ? errno : EIO),
+                            "reading /dev/urandom for session token");
+         close(RandFD);
+         exit(8);
+        }
+   close(RandFD);
+
+// Convert to a printable string.
 //
-   tohex((char *)&mynum, sizeof(mynum), mybuff);
+   tohex((char *)myrand, sizeof(myrand), mybuff);
    return strdup(mybuff);
+}
+
+/******************************************************************************/
+/*                         L o a d S e c T o k e n E n v                      */
+/******************************************************************************/
+
+void bbcp_Config::LoadSecTokenEnv()
+{
+   char *envToken = getenv(bbcp_SecTokenEnv);
+
+   if (!envToken || !*envToken) return;
+   if (SecToken) free(SecToken);
+   SecToken = strdup(envToken);
 }
 
 /******************************************************************************/

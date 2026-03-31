@@ -160,6 +160,7 @@ int   EOpts(char *Opts);
 void  help(int rc);
 int   HostAndPort(const char *what, char *path, char *buff, int bsz);
 int   LogOpts(char *opts);
+void  LoadSecTokenEnv();
 void  ParseSB(char *spec);
 int   ROpts(char *Opts);
 int   ROptsErr(char *Opts);

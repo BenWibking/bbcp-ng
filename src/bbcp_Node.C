@@ -180,6 +180,7 @@ int bbcp_Node::Put(char *data[], int dlen[])
 int bbcp_Node::Run(char *user, char *host, char *prog, char *parg)
 {
    static char ipv4[] = {'-','4','\0'};
+   char secEnv[sizeof("BBCP_SECTOKEN=") + 32];
    int fderr, numa = 0;
    char *username, *sshDest, bufDest[264], *Argv[1024], *ap, *pp = prog;
    const int ArgvSize = sizeof(Argv)/sizeof(char *)-2;
@@ -230,6 +231,15 @@ int bbcp_Node::Run(char *user, char *host, char *prog, char *parg)
 // Complete argument list to start the actual copy program
 //
    if (numa >= ArgvSize) return bbcp_Emsg("Run", -E2BIG, "starting", prog);
+   if (user || host)
+      {if (numa >= ArgvSize-1) return bbcp_Emsg("Run", -E2BIG, "starting", prog);
+       if (snprintf(secEnv, sizeof(secEnv), "BBCP_SECTOKEN=%s",
+                    bbcp_Config.SecToken) >= (int)sizeof(secEnv))
+          return bbcp_Emsg("Run", -E2BIG, "preparing security context for", prog);
+       Argv[numa] = Argv[numa-1];
+       Argv[numa-1] = secEnv;
+       numa++;
+      }
    Argv[numa++] = parg;
    Argv[numa]   = 0;
 

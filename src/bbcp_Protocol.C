@@ -27,12 +27,14 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include "bbcp_Config.h"
 #include "bbcp_Emsg.h"
 #include "bbcp_Headers.h"
+#include "bbcp_MD5.h"
 #include "bbcp_Network.h"
 #include "bbcp_Node.h"
 #include "bbcp_Protocol.h"
@@ -66,6 +68,64 @@ extern bbcp_Network  bbcp_Net;
 extern bbcp_Version  bbcp_Version;
 
 extern "C" {extern void *bbcp_FileSpecIndex(void *pp);}
+
+namespace
+{
+const char *bbcp_AuthLabel = "BBCP-AUTH-v1";
+
+void bbcp_tohex(const unsigned char *inbuff, int inlen, char *outbuff)
+{
+   static const char hv[] = "0123456789abcdef";
+
+   while(inlen--)
+        {unsigned char b = *inbuff++;
+         *outbuff++ = hv[(b >> 4) & 0x0f];
+         *outbuff++ = hv[b & 0x0f];
+        }
+   *outbuff = '\0';
+}
+
+int bbcp_GenNonce(char *outbuff, size_t outlen)
+{
+   unsigned char randbuff[16];
+   ssize_t nread = 0;
+   int RandFD;
+
+   if (outlen < sizeof(randbuff)*2+1) return -EINVAL;
+   if ((RandFD = open("/dev/urandom", O_RDONLY)) < 0) return -errno;
+
+   while(nread < (ssize_t)sizeof(randbuff))
+        {ssize_t n = read(RandFD, randbuff+nread, sizeof(randbuff)-nread);
+         if (n > 0) {nread += n; continue;}
+         if (n < 0 && errno == EINTR) continue;
+         close(RandFD);
+         return -(n < 0 ? errno : EIO);
+        }
+   close(RandFD);
+   bbcp_tohex(randbuff, sizeof(randbuff), outbuff);
+   return 0;
+}
+
+int bbcp_MakeAuthProof(const char *id, const char *nonce, char *outbuff,
+                       size_t outlen)
+{
+   bbcp_MD5 md5;
+   char    *mdtext;
+
+   if (outlen < 33) return -EINVAL;
+   md5.Init();
+   md5.Update(bbcp_AuthLabel, strlen(bbcp_AuthLabel));
+   md5.Update(":", 1);
+   md5.Update(id, strlen(id));
+   md5.Update(":", 1);
+   md5.Update(nonce, strlen(nonce));
+   md5.Update(":", 1);
+   md5.Update(bbcp_Config.SecToken, strlen(bbcp_Config.SecToken));
+   md5.Final(&mdtext);
+   strcpy(outbuff, mdtext);
+   return 0;
+}
+};
   
 /******************************************************************************/
 /*                              S c h e d u l e                               */
@@ -438,7 +498,8 @@ int bbcp_Protocol::Process_get()
 //
 int bbcp_Protocol::Process_login(bbcp_Link *Net)
 {
-   char buff[256], *tp, *bp, *vp, *wp, *id;
+   char buff[256], nonce[33], proof[33];
+   char *tp, *bp, *vp, *wp, *wsp, *id;
    int retc, blen, respWS;
    bbcp_Login_Stream loginStream(Net);
    bbcp_Node *np = loginStream.np;
@@ -456,23 +517,18 @@ int bbcp_Protocol::Process_login(bbcp_Link *Net)
 //
    id = (Remote ? (char *)"data" : (char *)"ctlr");
 
-// Process the login request: login <id> <password>
+// Process the login request: login <id> [params]
 //
    if (!(wp = np->GetToken()) || strcmp(wp, "login")
-   ||  !(wp = np->GetToken()) || strcmp(wp, id)
-   ||  !(wp = np->GetToken()) || strcmp(wp, bbcp_Config.SecToken))
+   ||  !(wp = np->GetToken()) || strcmp(wp, id))
       return bbcp_Fmsg("Process_Login", "Invalid login from", Net->LinkName());
-
-// We are all done if this is not a control stream
-//
-   if (*id != 'c') {np->Detach(); return 0;}
 
 // Pickup all parameters.
 //
-   bp = vp = wp = 0;
+   bp = vp = wsp = 0;
    while((tp = np->GetToken()))
         {     if (!strcmp(tp, "wsz:"))
-                 {if (!(wp = np->GetToken()))
+                 {if (!(wsp = np->GetToken()))
                      return bbcp_Fmsg("Login", "Window size is missing.");
                  }
          else if (!strcmp(tp, "ver:"))
@@ -485,24 +541,56 @@ int bbcp_Protocol::Process_login(bbcp_Link *Net)
                  }
         }
 
+// Send a one-time challenge nonce and require a proof of possession.
+//
+   if ((retc = bbcp_GenNonce(nonce, sizeof(nonce))) < 0)
+      return bbcp_Emsg("Process_Login", -retc, "generating auth challenge");
+   blen = snprintf(buff, sizeof(buff), "204 challenge %s\n", nonce);
+   if ((retc = np->Put(buff, blen)) < 0) return -1;
+
+   if (!(np->GetLine()))
+      {if ((retc = np->LastError()))
+          return bbcp_Emsg("Process_Login", retc, "authenticating",
+                           Net->LinkName());
+       return bbcp_Fmsg("Process_Login", "Missing auth proof from",
+                        Net->LinkName());
+      }
+   if (!(wp = np->GetToken()) || strcmp(wp, "auth")
+   ||  !(wp = np->GetToken()))
+      return bbcp_Fmsg("Process_Login", "Invalid auth proof from",
+                       Net->LinkName());
+
+   if ((retc = bbcp_MakeAuthProof(id, nonce, proof, sizeof(proof))) < 0)
+      return bbcp_Emsg("Process_Login", -retc, "computing auth proof");
+   if (strcmp(wp, proof))
+      return bbcp_Fmsg("Process_Login", "Authentication failed for",
+                       Net->LinkName());
+
 // Verify that our version is the same on the other side
 //
-   if (vp) bbcp_Version.Verify(Net->LinkName(), vp);
-      else bbcp_Version.Verify(Net->LinkName(),(char *)"02.01.12.00.0");
+   if (*id == 'c')
+      {if (vp) bbcp_Version.Verify(Net->LinkName(), vp);
+          else bbcp_Version.Verify(Net->LinkName(),(char *)"02.01.12.00.0");
+      }
 
 // We can now do a window/buffer adjustment
 //
-   if (!wp) respWS = bbcp_Config.Wsize;
-      else if (!(respWS = AdjustWS(wp, bp, 0))) return -1;
+   if (*id == 'c')
+      {if (!wsp) respWS = bbcp_Config.Wsize;
+          else if (!(respWS = AdjustWS(wsp, bp, 0))) return -1;
+      }
 
-// Respond to this login request (control only gets a response)
+// Respond to this login request.
 //
-   blen = snprintf(buff, sizeof(buff), "204 loginok wsz: %d %d\n",
-                   respWS, bbcp_Config.RWBsz);
+   if (*id == 'c')
+        blen = snprintf(buff, sizeof(buff), "204 loginok wsz: %d %d\n",
+                        respWS, bbcp_Config.RWBsz);
+      else blen = snprintf(buff, sizeof(buff), "204 loginok\n");
    if ((retc = np->Put(buff, blen)) < 0) return -1;
 
 // All done
 //
+   if (*id != 'c') {np->Detach(); return 0;}
    Remote = np;
    loginStream.np = 0;
    return 1;
@@ -786,9 +874,9 @@ int bbcp_Protocol::Request_get(bbcp_FileSpec *fp)
   
 int bbcp_Protocol::Request_login(bbcp_Link *Net)
 {
-   const char *CtlLogin = "login ctlr %s wsz: %s%d ver: %s dsz: %d\n";
-   const char *DatLogin = "login data %s\n";
-   char buff[512], *id, *wp;
+   const char *CtlLogin = "login ctlr wsz: %s%d ver: %s dsz: %d\n";
+   const char *DatLogin = "login data\n";
+   char buff[512], nonce[64], proof[33], *id, *wp;
    int retc, blen;
    bbcp_Login_Stream loginStream(Net);
    bbcp_Node *np = loginStream.np;
@@ -799,7 +887,7 @@ int bbcp_Protocol::Request_login(bbcp_Link *Net)
 
 // Prepare the login request
 //
-   blen = snprintf(buff, sizeof(buff), id, bbcp_Config.SecToken,
+   blen = snprintf(buff, sizeof(buff), id,
                    (bbcp_Net.AutoTune() ? "+" : ""), bbcp_Config.Wsize,
                    bbcp_Version.VData, bbcp_Config.RWBsz);
 
@@ -809,18 +897,39 @@ int bbcp_Protocol::Request_login(bbcp_Link *Net)
       return bbcp_Emsg( "Request_Login",-(np->LastError()),
                         "requesting", id, (char *)"path.");
 
-// If this is a data stream, then tell caller to hold on to the net link
+// Read and process the challenge.
 //
-   if (Remote) {np->Detach(); return 0;}
+   if (!(np->GetLine()))
+      return bbcp_Fmsg("Request_Login", "Missing auth challenge.");
+   if (!(np->GetToken()) || !(wp = np->GetToken())
+   ||  strcmp(wp, "challenge")
+   ||  !(wp = np->GetToken()))
+      return bbcp_Fmsg("Request_Login", "Invalid auth challenge.");
+   if (strlen(wp) >= sizeof(nonce))
+      return bbcp_Fmsg("Request_Login", "Oversized auth challenge.");
+   strcpy(nonce, wp);
 
-// For a control connection, read the acknowledgement below
-// nnn loginok wsz: <num> [<dsz>]
+   if ((retc = bbcp_MakeAuthProof((Remote ? "data" : "ctlr"), nonce,
+                                  proof, sizeof(proof))) < 0)
+      return bbcp_Emsg("Request_Login", -retc, "computing auth proof");
+
+   blen = snprintf(buff, sizeof(buff), "auth %s\n", proof);
+   if ((retc = np->Put(buff, (ssize_t)blen)) < 0)
+      return bbcp_Emsg("Request_Login",-(np->LastError()),
+                       "sending auth proof for", id);
+
+// Read the acknowledgement below.
 //
    if (np->GetLine())
-      {if (np->GetToken()        && (wp = np->GetToken())
-       && !strcmp(wp, "loginok") && (wp = np->GetToken())
-       && !strcmp(wp, "wsz:")    && (wp = np->GetToken())
-       &&  AdjustWS(wp, np->GetToken(), 1))
+      {if (!(np->GetToken()) || !(wp = np->GetToken())
+       ||  strcmp(wp, "loginok"))
+           return bbcp_Fmsg("Request_Login", "Invalid login ack sequence.");
+       if (Remote)
+          {np->Detach();
+           return 0;
+          }
+       if ((wp = np->GetToken()) && !strcmp(wp, "wsz:")
+       &&  (wp = np->GetToken()) && AdjustWS(wp, np->GetToken(), 1))
           {Remote = np;
            loginStream.np = 0;
            return 1;
