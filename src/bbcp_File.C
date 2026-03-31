@@ -77,6 +77,14 @@ extern bbcp_BuffPool bbcp_CPool;
 extern bbcp_Config   bbcp_Config;
 
 extern bbcp_RTCopy   bbcp_RTCopy;
+
+namespace
+{
+const char *bbcp_FileDebugPath(const char *path)
+{
+   return bbcp_DebugMask(path, "path", 1);
+}
+}
  
 /******************************************************************************/
 /*            E x t e r n a l   T h r e a d   I n t e r f a c e s             */
@@ -371,7 +379,7 @@ int bbcp_File::Read_All(bbcp_BuffPool &inPool, int Vn)
                          "does not match", csTxt);
                rc = EILSEQ;
               } else {DEBUG(csP->csObj->Type() <<": " <<csTxt <<' '
-                              <<bbcp_DebugMask(iofn, "path", DEBUGON));}
+                              <<bbcp_FileDebugPath(iofn));}
           }
        delete csP;
       } else inPool.putFullBuff(bP);
@@ -379,7 +387,7 @@ int bbcp_File::Read_All(bbcp_BuffPool &inPool, int Vn)
 // All done
 //
    DEBUG("EOF offset=" <<nextoffset <<" rc=" <<rc <<" path="
-         <<bbcp_DebugMask(iofn, "path", DEBUGON));
+         <<bbcp_FileDebugPath(iofn));
    return rc;
 }
 
@@ -659,8 +667,7 @@ int bbcp_File::verChkSum(bbcp_FileChkSum *csP)
 
 // All done
 //
-   DEBUG(csP->csObj->Type() <<": <checksum> "
-         <<bbcp_DebugMask(iofn, "path", DEBUGON));
+   DEBUG(csP->csObj->Type() <<": <checksum> " <<bbcp_FileDebugPath(iofn));
    return 0;
 }
 

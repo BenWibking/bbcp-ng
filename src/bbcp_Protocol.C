@@ -59,6 +59,14 @@ bbcp_Node *np;
            {if (np) delete np;}
 };
 
+namespace
+{
+const char *bbcp_ProtocolPath(const char *path)
+{
+   return bbcp_DebugMask(path, "path", 1);
+}
+}
+
 /******************************************************************************/
 /*                      E x t e r n a l   O b j e c t s                       */
 /******************************************************************************/
@@ -324,7 +332,7 @@ int bbcp_Protocol::Process(bbcp_Node *Node)
         {NoGo |= fp->Stat();
          if (fp->Info.Otype == 'd' && !(bbcp_Config.Options & bbcp_RECURSE)
          &&  fp->Info.size)
-            {bbcp_Fmsg("Source", bbcp_DebugMask(fp->pathname, "path", DEBUGON),
+            {bbcp_Fmsg("Source", bbcp_ProtocolPath(fp->pathname),
                        "is a directory.");
              NoGo = 1; break;
             }
@@ -481,7 +489,7 @@ int bbcp_Protocol::Process_get()
       {char buff[64];
        snprintf(buff, sizeof(buff), "%d", fnum);
        bbcp_Fmsg("Process_get", "file", buff,
-                 bbcp_DebugMask(fname, "path", DEBUGON), "not found.");
+                 bbcp_ProtocolPath(fname), "not found.");
        free(fname);
        return 2;
       }
@@ -501,7 +509,7 @@ int bbcp_Protocol::Process_get()
           {char buff[128];
            snprintf(buff, sizeof(buff), "(%lld>%lld)", foffset, fp->Info.size);
            bbcp_Fmsg("Process_get","Invalid offset",buff,"for",
-                     bbcp_DebugMask(fp->pathname, "path", DEBUGON));
+                     bbcp_ProtocolPath(fp->pathname));
            free(fname);
            return 29;
           }

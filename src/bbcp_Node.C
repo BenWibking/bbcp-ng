@@ -70,6 +70,16 @@ const char *bbcp_DebugExecArg(const char *arg)
    return arg;
 }
 
+const char *bbcp_NodePath(const char *path)
+{
+   return bbcp_DebugMask(path, "path", DEBUGON);
+}
+
+const char *bbcp_NodeInternalPath(const char *path)
+{
+   return bbcp_DebugMask(path, "path", 1);
+}
+
 void bbcp_DebugPutSummary(char *data[], int dlen[], int &parts, int &bytes)
 {
    int i = 0;
@@ -381,7 +391,7 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
                      if (Args)
                         {bbcp_Fmsg("RecvFile",
                                    "Spaces disallowed in named output pipe",
-                                   bbcp_DebugMask(Path, "path", DEBUGON));
+                                   bbcp_NodeInternalPath(Path));
                          return -EINVAL;
                         }
                     }
@@ -411,18 +421,18 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
          {char buff[32];
           snprintf(buff, sizeof(buff), "%lld", startoff);
           bbcp_Fmsg("RecvFile","Appending to",
-                    bbcp_DebugMask(Path, "path", DEBUGON),
+                    bbcp_NodePath(Path),
                     "at offset",buff);
          }
          else bbcp_Fmsg("RecvFile", "Creating",
-                        bbcp_DebugMask(Path, "path", DEBUGON));
+                        bbcp_NodePath(Path));
       else DEBUG("Receiving file data; offset=" <<startoff);
 
 // Receive the file in a sub-process so that we don't muck with this one
 //
    if ((Child[0] = bbcp_OS.Fork()) < 0)
       return bbcp_Emsg("RecvFile", errno, "forking to create",
-                       bbcp_DebugMask(Path, "path", DEBUGON));
+                       bbcp_NodeInternalPath(Path));
    if (Child[0]) 
       {char buff[128];
        Parent_Monitor.Start(0,Remote);
@@ -452,10 +462,10 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
    Elapsed_Timer.Start();
    if (!(outFile = fp->FSys()->Open(Path, oflag, Mode, Args)))
       return bbcp_Emsg("RecvFile", errno, Act,
-                       bbcp_DebugMask(Path, "path", DEBUGON));
+                       bbcp_NodePath(Path));
    if (startoff && ((retc = outFile->Seek(startoff)) < 0))
       return bbcp_Emsg("RecvFile",retc,"setting write offset for",
-                       bbcp_DebugMask(Path, "path", DEBUGON));
+                       bbcp_NodeInternalPath(Path));
    outFile->setSize(fp->Info.size);
 
 // If compression is wanted, set up the compression objects
@@ -469,7 +479,7 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
        {if ((retc = bbcp_Thread_Start(bbcp_Net2Buff, 
                                 (void *)data_link[i], &tid))<0)
            {bbcp_Emsg("RecvFile",retc,"starting net thread for",
-                      bbcp_DebugMask(Path, "path", DEBUGON));
+                      bbcp_NodeInternalPath(Path));
             _exit(100);
            }
         link_tid[i] = tid;
@@ -482,7 +492,7 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
       {seqFile = new bbcp_File(Path, 0, 0);
        if ((retc = bbcp_Thread_Start(bbcp_doWrite, (void *)seqFile, &tid))<0)
           {bbcp_Emsg("RecvFile",retc,"starting disk thread for",
-                     bbcp_DebugMask(Path, "path", DEBUGON));
+                     bbcp_NodeInternalPath(Path));
            _exit(100);
           }
        link_tid[dlcount++] = tid;
@@ -535,7 +545,7 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
        if (fstat(outFile->ioFD(), &stbuff))
           {retc = errno;
            bbcp_Emsg("RecvFile", retc, "finding",
-                     bbcp_DebugMask(Path, "path", DEBUGON));
+                     bbcp_NodeInternalPath(Path));
           }
           else if (stbuff.st_size != fp->Info.size && stbuff.st_mode
                &&  !(bbcp_Config.Options & bbcp_NOFSZCHK))
@@ -543,7 +553,7 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
                                     ?  "Not all" : "Too much");
                    retc = 29;
                    bbcp_Fmsg("RecvFile",What,"data was transfered for",
-                             bbcp_DebugMask(Path, "path", DEBUGON));
+                             bbcp_NodePath(Path));
                    DEBUG("src size=" <<fp->Info.size <<" snk size=" <<stbuff.st_size);
                   }
       } DEBUG("Output file closed");
@@ -605,7 +615,7 @@ int bbcp_Node::SendFile(bbcp_FileSpec *fp)
    DEBUG("Sending file data; offset=" <<fp->targetsz);
    if ((Child[0] = bbcp_OS.Fork()) < 0)
       return bbcp_Emsg("SendFile", errno, "forking to send",
-                       bbcp_DebugMask(fp->pathname, "path", DEBUGON));
+                       bbcp_NodeInternalPath(fp->pathname));
    if (Child[0])
       {char buff[128];
        Parent_Monitor.Start();
@@ -633,12 +643,12 @@ int bbcp_Node::SendFile(bbcp_FileSpec *fp)
 //
    if (!(inFile = fp->FSys()->Open(fp->pathname,O_RDONLY,Mode,fp->fileargs)))
       {bbcp_Emsg("SendFile", errno, Act,
-                 bbcp_DebugMask(fp->pathname, "path", DEBUGON));
+                 bbcp_NodePath(fp->pathname));
        exit(2);
       }
    if (fp->targetsz && ((retc = inFile->Seek(fp->targetsz)) < 0))
       return bbcp_Emsg("SendFile",retc,"setting read offset for",
-                       bbcp_DebugMask(fp->pathname, "path", DEBUGON));
+                       bbcp_NodeInternalPath(fp->pathname));
 
 // If compression is wanted, set up the compression objects
 //
@@ -651,7 +661,7 @@ int bbcp_Node::SendFile(bbcp_FileSpec *fp)
        {if ((retc = bbcp_Thread_Start(bbcp_Buff2Net, 
                                 (void *)data_link[i], &tid))<0)
            {bbcp_Emsg("SendFile",retc,"starting net thread for",
-                      bbcp_DebugMask(fp->pathname, "path", DEBUGON));
+                      bbcp_NodeInternalPath(fp->pathname));
             _exit(100);
            }
         link_tid[i] = tid;

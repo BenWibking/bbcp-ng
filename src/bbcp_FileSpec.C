@@ -67,6 +67,21 @@ bbcp_Set *pathSet = 0;
 
 bbcp_FileSpec* lastp = 0;
 
+const char *logPath(const char *path)
+{
+   return bbcp_DebugMask(path, "path", DEBUGON);
+}
+
+const char *internalPath(const char *path)
+{
+   return bbcp_DebugMask(path, "path", 1);
+}
+
+const char *internalLink(const char *path)
+{
+   return bbcp_DebugMask(path, "symlink", 1);
+}
+
 int splitSpecPath(const char *path, char *dirbuf, size_t dlen,
                   char *filebuf, size_t flen)
 {
@@ -95,13 +110,13 @@ int splitSpecPath(const char *path, char *dirbuf, size_t dlen,
    return 0;
 }
 
-int openTargetAnchored(const char *path)
+int openParentDirAnchored(const char *path, char *leaf, size_t llen)
 {
-   char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
-   int dfd = -1, fd = -1, opts = O_RDONLY, rc;
+   char dirbuf[MAXPATHLEN+1];
+   int dfd = -1, opts = O_RDONLY, rc;
 
    if ((rc = splitSpecPath(path, dirbuf, sizeof(dirbuf),
-                           filebuf, sizeof(filebuf)))) return rc;
+                           leaf, llen))) return rc;
 #ifdef O_DIRECTORY
    opts |= O_DIRECTORY;
 #endif
@@ -110,14 +125,21 @@ int openTargetAnchored(const char *path)
 #endif
    do {dfd = open(dirbuf, opts);}
       while(dfd < 0 && errno == EINTR);
-   if (dfd < 0) return -errno;
+   return (dfd < 0 ? -errno : dfd);
+}
+
+int openTargetAnchored(const char *path)
+{
+   char leaf[MAXPATHLEN+1];
+   int dfd = -1, fd = -1, opts = O_RDONLY, rc;
+
+   if ((dfd = openParentDirAnchored(path, leaf, sizeof(leaf))) < 0) return dfd;
 
 #if defined(AT_FDCWD)
-   opts = O_RDONLY;
 #ifdef O_NOFOLLOW
    opts |= O_NOFOLLOW;
 #endif
-   do {fd = openat(dfd, filebuf, opts);}
+   do {fd = openat(dfd, leaf, opts);}
       while(fd < 0 && errno == EINTR);
 #else
    do {fd = open(path, O_RDONLY
@@ -298,8 +320,7 @@ int bbcp_FileSpec::Compose(long long did, char *dpath, int dplen, char *fname)
                 bbcp_Config.CKPdir, hostname, did, rp);
        buff[sizeof(buff)-1] = '\0';
        targsigf = strdup(buff);
-       DEBUG("Append signature file is "
-             <<bbcp_DebugMask(targsigf, "path", DEBUGON));
+       DEBUG("Append signature file is " <<internalPath(targsigf));
       }
    return retc == 0;
 }
@@ -317,7 +338,7 @@ int bbcp_FileSpec::Create_Link()
 // in the directory. This will later be set to the true mode if it differs.
 //
    DEBUG("Make link " <<bbcp_DebugMask(targpath, "path", DEBUGON)
-         <<" -> " <<bbcp_DebugMask(Info.SLink, "symlink", DEBUGON));
+         <<" -> " <<internalLink(Info.SLink));
    if ((retc = FSp->MKLnk(Info.SLink, targpath)))
       return bbcp_Emsg("Create_Link", retc, "creating link",
                        bbcp_DebugMask(targpath, "path", DEBUGON));
@@ -532,7 +553,6 @@ bool bbcp_FileSpec::ExtendFileSpec(int &numF, int &numL, int slOpt)
    bbcp_FileSpec* newp;
    DIR           *dirp;
    char           relative_name[1024], absolute_name[4096];
-   struct stat    sbuf;
    int            accD = (bbcp_Config.Options & bbcp_RXONLY ? R_OK|X_OK : 0);
    int            accF = (bbcp_Config.Options & bbcp_RDONLY ? R_OK : 0);
    int            dirFD;
@@ -581,18 +601,32 @@ bool bbcp_FileSpec::ExtendFileSpec(int &numF, int &numL, int slOpt)
       // Skip anything that isn't a file or a directory here
       //
            if (fInfo.Otype == 'f')
-              {if (accF && access(absolute_name, accF))
+              {
+#if defined(AT_EACCESS)
+               if (accF && faccessat(dirFD, d->d_name, accF, AT_EACCESS))
+#else
+               if (accF && faccessat(dirFD, d->d_name, accF, 0))
+#endif
                   {if (blab) SkipMsg(fInfo, absolute_name); continue;}
                numF++;
               }
       else if (fInfo.Otype == 'l')
               {if (slOpt >= 0) continue;
-               if (!slOpt && accF && access(absolute_name, accF))
+ #if defined(AT_EACCESS)
+               if (!slOpt && accF && faccessat(dirFD, d->d_name, accF, AT_EACCESS))
+ #else
+               if (!slOpt && accF && faccessat(dirFD, d->d_name, accF, 0))
+ #endif
                   {if (blab) SkipMsg(fInfo, absolute_name); continue;}
                numL++;
               }
       else if (fInfo.Otype != 'd') continue;
-      else    {if (accD && access(absolute_name, accD))
+      else    {
+#if defined(AT_EACCESS)
+               if (accD && faccessat(dirFD, d->d_name, accD, AT_EACCESS))
+#else
+               if (accD && faccessat(dirFD, d->d_name, accD, 0))
+#endif
                   {if (blab) SkipMsg(fInfo, absolute_name); continue;}
               }
 
@@ -670,7 +704,7 @@ int bbcp_FileSpec::FinalizeX(int retc, int setMode)
       {int rc = bbcp_Config.SecureUnlink(targsigf, 1);
        if (rc && rc != -ENOENT)
           bbcp_Emsg("Finalize", -rc, "removing restart file",
-                    bbcp_DebugMask(targsigf, "path", DEBUGON));
+                    internalPath(targsigf));
       }
 
 // All done
@@ -916,11 +950,11 @@ int bbcp_FileSpec::WriteSigFile()
 //
    if (!(buff = Encode()))
       return bbcp_Fmsg("WriteSigFile","Unable to create restart file",
-                       bbcp_DebugMask(targsigf, "path", DEBUGON));
+                       internalPath(targsigf));
    rc = bbcp_Config.SecureReplace(targsigf, buff, strlen(buff), 0600, 1);
    free(buff);
    if (rc) return bbcp_Emsg("WriteSigFile", -rc, "writing restart file",
-                            bbcp_DebugMask(targsigf, "path", DEBUGON));
+                            internalPath(targsigf));
 
 // All done
 //
@@ -948,10 +982,10 @@ int bbcp_FileSpec::Xfr_Done()
           {close(sigfd);
            rc = Xfr_Fixup();
            if (rc >= 0 || !Force) return rc;
-	         } else {
+		         } else {
 	          if (errno != ENOENT)
 	             return bbcp_Emsg("Xfr_Done", errno, "opening restart file",
-	                              bbcp_DebugMask(targsigf, "path", DEBUGON));
+	                              internalPath(targsigf));
 	          if (targetsz == Info.size || targetsz < 0)
 	             {if (targetsz >= 0) bbcp_Fmsg("Xfr_Done", "File",
 	                 bbcp_DebugMask(targpath, "path", DEBUGON),
@@ -1056,12 +1090,12 @@ int bbcp_FileSpec::Xfr_Fixup()
 //
    if ((infd = bbcp_Config.SecureOpen(targsigf, O_RDONLY, 0, 1, 1)) < 0)
       return bbcp_Emsg("Xfr_Fixup", -errno, "opening file",
-                       bbcp_DebugMask(targsigf, "path", DEBUGON));
+                       internalPath(targsigf));
    TSigstream.Attach(infd);
    if (!(lp = TSigstream.GetLine()) || TSpec.Decode(lp,targsigf))
       return bbcp_Fmsg("Xfr_Fixup",
                   "Unable to determine append state for",
-                  bbcp_DebugMask(targetfn, "path", DEBUGON));
+                  internalPath(targetfn));
 
 // Determine if the source file is still the same
 //
@@ -1074,7 +1108,7 @@ int bbcp_FileSpec::Xfr_Fixup()
                  bbcp_DebugMask(filename, "path", DEBUGON), "on", hostname,
                  "appears to have changed after the previous copy ended.");
        return bbcp_Fmsg("Xfr_Fixup", "Cannot append to",
-                        bbcp_DebugMask(targetfn, "path", DEBUGON));
+                        internalPath(targetfn));
       }
 
 // Is the file sizes are identical then, finalize the copy now
@@ -1089,6 +1123,6 @@ int bbcp_FileSpec::Xfr_Fixup()
 //
    if (bbcp_Config.Options & bbcp_VERBOSE)
       bbcp_Fmsg("Xfr_Fixup", "Will try to complete copying",
-                bbcp_DebugMask(targpath, "path", DEBUGON));
+                logPath(targpath));
    return 0;
 }
