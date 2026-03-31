@@ -324,7 +324,8 @@ int bbcp_Protocol::Process(bbcp_Node *Node)
         {NoGo |= fp->Stat();
          if (fp->Info.Otype == 'd' && !(bbcp_Config.Options & bbcp_RECURSE)
          &&  fp->Info.size)
-            {bbcp_Fmsg("Source", fp->pathname, "is a directory.");
+            {bbcp_Fmsg("Source", bbcp_DebugMask(fp->pathname, "path", DEBUGON),
+                       "is a directory.");
              NoGo = 1; break;
             }
 
@@ -479,7 +480,8 @@ int bbcp_Protocol::Process_get()
    if (!fp)
       {char buff[64];
        snprintf(buff, sizeof(buff), "%d", fnum);
-       bbcp_Fmsg("Process_get", "file '", buff, fname, "' not found.");
+       bbcp_Fmsg("Process_get", "file", buff,
+                 bbcp_DebugMask(fname, "path", DEBUGON), "not found.");
        free(fname);
        return 2;
       }
@@ -498,7 +500,8 @@ int bbcp_Protocol::Process_get()
        if (foffset > fp->Info.size)
           {char buff[128];
            snprintf(buff, sizeof(buff), "(%lld>%lld)", foffset, fp->Info.size);
-           bbcp_Fmsg("Process_get","Invalid offset",buff,"for",fp->pathname);
+           bbcp_Fmsg("Process_get","Invalid offset",buff,"for",
+                     bbcp_DebugMask(fp->pathname, "path", DEBUGON));
            free(fname);
            return 29;
           }
@@ -680,7 +683,9 @@ int bbcp_Protocol::Request(bbcp_Node *Node)
             if (!fs_obj || ((!(retc = fs_obj->Stat(tdir, &Tinfo))
             && Tinfo.Otype != 'd') && outDir)) retc = ENOTDIR;
             if (retc) {bbcp_Fmsg("Request","Target directory",
-                                 bbcp_Config.snkSpec->pathname,"not found");
+                                 bbcp_DebugMask(bbcp_Config.snkSpec->pathname,
+                                                "path", DEBUGON),
+                                 "not found");
                        return Request_exit(2, dRM);
                       }
             tdir_id = Tinfo.fileid;
@@ -699,15 +704,19 @@ int bbcp_Protocol::Request(bbcp_Node *Node)
 //
    if (numfiles > 1 || numlinks > 1 || outDir)
       {if (!texists)
-          {bbcp_Fmsg("Request", "Target directory",
-                     bbcp_Config.snkSpec->pathname, "not found.");
-           return Request_exit(2);
-          }
-       if (bbcp_Config.snkSpec->Info.Otype != 'd')
-          {bbcp_Fmsg("Request", "Target", bbcp_Config.snkSpec->pathname,
-                     "is not a directory.");
-           return Request_exit(20);
-          }
+         {bbcp_Fmsg("Request", "Target directory",
+                    bbcp_DebugMask(bbcp_Config.snkSpec->pathname,
+                                   "path", DEBUGON),
+                    "not found.");
+          return Request_exit(2);
+         }
+      if (bbcp_Config.snkSpec->Info.Otype != 'd')
+         {bbcp_Fmsg("Request", "Target",
+                    bbcp_DebugMask(bbcp_Config.snkSpec->pathname,
+                                   "path", DEBUGON),
+                    "is not a directory.");
+          return Request_exit(20);
+         }
        bbcp_Config.Options |= bbcp_OUTDIR;
       }
 

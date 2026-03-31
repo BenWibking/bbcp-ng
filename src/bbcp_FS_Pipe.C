@@ -70,7 +70,8 @@ bbcp_File *bbcp_FS_Pipe::Exec(const char *prog, const char *fa, int opts)
 
 // Issue some debugging here
 //
-   DEBUG("Running " <<prog <<' ' <<(fa ? fa : ""));
+   DEBUG("Running " <<bbcp_DebugMask(prog, "path", DEBUGON)
+         <<' ' <<(fa && *fa ? "<args>" : ""));
 
 // Validate that we can actually run this program
 //

@@ -31,6 +31,7 @@
 #include <string.h>
 #include <strings.h>
 #include <unistd.h>
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -65,6 +66,71 @@ namespace
 bbcp_Set *pathSet = 0;
 
 bbcp_FileSpec* lastp = 0;
+
+int splitSpecPath(const char *path, char *dirbuf, size_t dlen,
+                  char *filebuf, size_t flen)
+{
+   const char *slash;
+   size_t dirlen, filelen;
+
+   if (!path || !*path) return -(errno = EINVAL);
+   slash = strrchr(path, '/');
+   if (!slash)
+      {dirlen  = 1;
+       filelen = strlen(path);
+       if (dirlen+1 > dlen || filelen+1 > flen) return -(errno = ENAMETOOLONG);
+       memcpy(dirbuf, ".", dirlen+1);
+       memcpy(filebuf, path, filelen+1);
+       return 0;
+      }
+
+   filelen = strlen(slash+1);
+   dirlen  = slash-path;
+   if (!dirlen) dirlen = 1;
+   if (dirlen+1 > dlen || filelen+1 > flen) return -(errno = ENAMETOOLONG);
+   if (slash == path) memcpy(dirbuf, "/", dirlen);
+      else memcpy(dirbuf, path, dirlen);
+   dirbuf[dirlen] = '\0';
+   memcpy(filebuf, slash+1, filelen+1);
+   return 0;
+}
+
+int openTargetAnchored(const char *path)
+{
+   char dirbuf[MAXPATHLEN+1], filebuf[MAXPATHLEN+1];
+   int dfd = -1, fd = -1, opts = O_RDONLY, rc;
+
+   if ((rc = splitSpecPath(path, dirbuf, sizeof(dirbuf),
+                           filebuf, sizeof(filebuf)))) return rc;
+#ifdef O_DIRECTORY
+   opts |= O_DIRECTORY;
+#endif
+#ifdef O_NOFOLLOW
+   opts |= O_NOFOLLOW;
+#endif
+   do {dfd = open(dirbuf, opts);}
+      while(dfd < 0 && errno == EINTR);
+   if (dfd < 0) return -errno;
+
+#if defined(AT_FDCWD)
+   opts = O_RDONLY;
+#ifdef O_NOFOLLOW
+   opts |= O_NOFOLLOW;
+#endif
+   do {fd = openat(dfd, filebuf, opts);}
+      while(fd < 0 && errno == EINTR);
+#else
+   do {fd = open(path, O_RDONLY
+#ifdef O_NOFOLLOW
+                  |O_NOFOLLOW
+#endif
+                 );}
+      while(fd < 0 && errno == EINTR);
+#endif
+   rc = (fd < 0 ? -errno : fd);
+   if (close(dfd) && rc >= 0) rc = -errno;
+   return rc;
+}
 
 bool hasDotDot(const char *path)
 {
@@ -253,7 +319,8 @@ int bbcp_FileSpec::Create_Link()
    DEBUG("Make link " <<bbcp_DebugMask(targpath, "path", DEBUGON)
          <<" -> " <<bbcp_DebugMask(Info.SLink, "symlink", DEBUGON));
    if ((retc = FSp->MKLnk(Info.SLink, targpath)))
-      return bbcp_Emsg("Create_Link", retc, "creating link", targpath);
+      return bbcp_Emsg("Create_Link", retc, "creating link",
+                       bbcp_DebugMask(targpath, "path", DEBUGON));
 
 // All done
 //
@@ -276,7 +343,8 @@ int bbcp_FileSpec::Create_Path()
          <<bbcp_DebugMask(targpath, "path", DEBUGON));
    if ((retc = FSp->MKDir(targpath, bbcp_Config.ModeDC)))
      {if (retc == -EEXIST) return 0;
-         else return bbcp_Emsg("Create_Path", retc, "creating path", targpath);
+         else return bbcp_Emsg("Create_Path", retc, "creating path",
+                               bbcp_DebugMask(targpath, "path", DEBUGON));
      }
 
 // All done
@@ -328,7 +396,8 @@ int bbcp_FileSpec::Decode(char *buff, char *xName)
            if (pathText)  free(pathText);
            if (slinkText) free(slinkText);
            return bbcp_Fmsg("Decode", "Invalid encoded pathname data from",
-                            (xName ? xName : hostname));
+                            bbcp_DebugMask((xName ? xName : hostname),
+                                           "path", DEBUGON));
           }
 
        pathname = filename = fspec = pathText;
@@ -583,9 +652,10 @@ int bbcp_FileSpec::FinalizeX(int retc, int setMode)
        FSp->RM(targpath);
       }
       else if (setMode)
-              {if ((fd = bbcp_Config.SecureOpen(targpath, O_RDONLY, 0, 0, 0)) < 0)
-                  {bbcp_Emsg("Finalize", errno, "opening", targpath);
-                   retc = errno;
+              {if ((fd = openTargetAnchored(targpath)) < 0)
+                  {bbcp_Emsg("Finalize", -fd, "opening",
+                             bbcp_DebugMask(targpath, "path", DEBUGON));
+                   retc = -fd;
                   }
                   else
                   {if (bbcp_Config.Options & bbcp_PCOPY) setStatFD(fd, bbcp_Config.Mode);
@@ -599,7 +669,8 @@ int bbcp_FileSpec::FinalizeX(int retc, int setMode)
    if (targsigf)
       {int rc = bbcp_Config.SecureUnlink(targsigf, 1);
        if (rc && rc != -ENOENT)
-          bbcp_Emsg("Finalize", -rc, "removing restart file", targsigf);
+          bbcp_Emsg("Finalize", -rc, "removing restart file",
+                    bbcp_DebugMask(targsigf, "path", DEBUGON));
       }
 
 // All done
@@ -681,16 +752,24 @@ void bbcp_FileSpec::Parse(char *spec, int isPipe)
 
 int bbcp_FileSpec::setMode(mode_t Mode)
 {
-   int retc;
+   int fd, retc;
 
 // Make sure we have a filesystem here
 //
-   if (!FSp) return bbcp_Fmsg("setMode", "no filesystem for", targpath);
+   if (!FSp) return bbcp_Fmsg("setMode", "no filesystem for",
+                              bbcp_DebugMask(targpath, "path", DEBUGON));
 
-// Set the mode
+// Set the mode through a trusted descriptor anchored in the parent directory.
 //
-   if ((retc = FSp->setMode (targpath, Mode)))
-      bbcp_Emsg("setStat", -retc, "setting mode on", targpath);
+   if ((fd = openTargetAnchored(targpath)) < 0)
+      return bbcp_Emsg("setMode", -fd, "opening",
+                       bbcp_DebugMask(targpath, "path", DEBUGON));
+   if ((retc = FSp->setModeFD(fd, Mode)))
+      bbcp_Emsg("setStat", -retc, "setting mode on",
+                bbcp_DebugMask(targpath, "path", DEBUGON));
+   if (close(fd) && !retc)
+      bbcp_Emsg("setMode", errno, "closing",
+                bbcp_DebugMask(targpath, "path", DEBUGON));
    return 0;
 }
 
@@ -698,9 +777,11 @@ int bbcp_FileSpec::setModeFD(int fd, mode_t Mode)
 {
    int retc;
 
-   if (!FSp) return bbcp_Fmsg("setModeFD", "no filesystem for", targpath);
+   if (!FSp) return bbcp_Fmsg("setModeFD", "no filesystem for",
+                              bbcp_DebugMask(targpath, "path", DEBUGON));
    if ((retc = FSp->setModeFD(fd, Mode)))
-      bbcp_Emsg("setModeFD", -retc, "setting mode on", targpath);
+      bbcp_Emsg("setModeFD", -retc, "setting mode on",
+                bbcp_DebugMask(targpath, "path", DEBUGON));
    return 0;
 }
 
@@ -710,32 +791,22 @@ int bbcp_FileSpec::setModeFD(int fd, mode_t Mode)
 
 int bbcp_FileSpec::setStat(mode_t Mode)
 {
-   char *act =  0;
-   int retc, ecode = 0;
+   int fd;
 
 // Make sure we have a filesystem here
 //
-   if (!FSp) return bbcp_Fmsg("setStat", "no filesystem for", targpath);
+   if (!FSp) return bbcp_Fmsg("setStat", "no filesystem for",
+                              bbcp_DebugMask(targpath, "path", DEBUGON));
 
-// Set the atime and mtime
+// Apply metadata changes through a single trusted descriptor so follow-on
+// updates cannot be redirected by path substitution between operations.
 //
-   if ((retc = FSp->setTimes(targpath, Info.atime, Info.mtime)))
-      {act = (char *)"setting time on"; ecode = retc;}
-
-// Set the mode (mode depends on whether this is a plain preserve or not)
-//
-   if (!(bbcp_Config.Options & bbcp_PTONLY)) Mode = Info.mode;
-   if ((retc = FSp->setMode (targpath, Mode)))
-      {act = (char *)"setting mode on"; ecode = retc;}
-
-// Set the group only if this is a plain preserve
-//
-   if (!(bbcp_Config.Options & bbcp_PTONLY) && Info.Group)
-      FSp->setGroup (targpath, Info.Group);
-
-// Check if any errors occured (we ignore these just like cp/scp does)
-//
-   if (act) bbcp_Emsg("setStat", -retc, act, targpath);
+   if ((fd = openTargetAnchored(targpath)) < 0)
+      return bbcp_Emsg("setStat", -fd, "opening",
+                       bbcp_DebugMask(targpath, "path", DEBUGON));
+   setStatFD(fd, Mode);
+   if (close(fd)) bbcp_Emsg("setStat", errno, "closing",
+                            bbcp_DebugMask(targpath, "path", DEBUGON));
    return 0;
 }
 
@@ -744,7 +815,8 @@ int bbcp_FileSpec::setStatFD(int fd, mode_t Mode)
    char *act =  0;
    int retc, ecode = 0;
 
-   if (!FSp) return bbcp_Fmsg("setStatFD", "no filesystem for", targpath);
+   if (!FSp) return bbcp_Fmsg("setStatFD", "no filesystem for",
+                              bbcp_DebugMask(targpath, "path", DEBUGON));
 
    if ((retc = FSp->setTimesFD(fd, Info.atime, Info.mtime)))
       {act = (char *)"setting time on"; ecode = retc;}
@@ -757,7 +829,8 @@ int bbcp_FileSpec::setStatFD(int fd, mode_t Mode)
       if ((retc = FSp->setGroupFD(fd, Info.Group)))
          {act = (char *)"setting group on"; ecode = retc;}
 
-   if (act) bbcp_Emsg("setStatFD", -ecode, act, targpath);
+   if (act) bbcp_Emsg("setStatFD", -ecode, act,
+                      bbcp_DebugMask(targpath, "path", DEBUGON));
    return 0;
 }
   
@@ -822,7 +895,8 @@ int bbcp_FileSpec::Stat(int complain)
 
 // Check if we have info and, if not, whether we should complain about it
 //
-   if (retc && complain) bbcp_Emsg("Stat", retc, "processing", pathname);
+   if (retc && complain) bbcp_Emsg("Stat", retc, "processing",
+                                   bbcp_DebugMask(pathname, "path", DEBUGON));
 
 // All done
 //
@@ -841,10 +915,12 @@ int bbcp_FileSpec::WriteSigFile()
 // Create a signature and write it out
 //
    if (!(buff = Encode()))
-      return bbcp_Fmsg("WriteSigFile","Unable to create restart file",targsigf);
+      return bbcp_Fmsg("WriteSigFile","Unable to create restart file",
+                       bbcp_DebugMask(targsigf, "path", DEBUGON));
    rc = bbcp_Config.SecureReplace(targsigf, buff, strlen(buff), 0600, 1);
    free(buff);
-   if (rc) return bbcp_Emsg("WriteSigFile", -rc, "writing restart file", targsigf);
+   if (rc) return bbcp_Emsg("WriteSigFile", -rc, "writing restart file",
+                            bbcp_DebugMask(targsigf, "path", DEBUGON));
 
 // All done
 //
@@ -872,22 +948,26 @@ int bbcp_FileSpec::Xfr_Done()
           {close(sigfd);
            rc = Xfr_Fixup();
            if (rc >= 0 || !Force) return rc;
-          } else {
-           if (errno != ENOENT)
-              return bbcp_Emsg("Xfr_Done", errno, "opening restart file", targsigf);
-           if (targetsz == Info.size || targetsz < 0)
-              {if (targetsz >= 0) bbcp_Fmsg("Xfr_Done", "File", targpath,
-                  "appears to have already been copied; copy skipped.");
-                  return (Finalize(0) ? -1 : 1);
-              }
-          }
+	         } else {
+	          if (errno != ENOENT)
+	             return bbcp_Emsg("Xfr_Done", errno, "opening restart file",
+	                              bbcp_DebugMask(targsigf, "path", DEBUGON));
+	          if (targetsz == Info.size || targetsz < 0)
+	             {if (targetsz >= 0) bbcp_Fmsg("Xfr_Done", "File",
+	                 bbcp_DebugMask(targpath, "path", DEBUGON),
+	                 "appears to have already been copied; copy skipped.");
+	                 return (Finalize(0) ? -1 : 1);
+	             }
+	         }
 
      // Unless force is in effect, we cannot append.
      //
-       if (!Force) return bbcp_Fmsg("Xfr_Done", "File", targpath,
-                 "changed since the copy completed; append not possible.");
-       bbcp_Fmsg("Xfr_Done", "File", targpath,
-                 "changed since the copy completed; copy restarting.");
+	      if (!Force) return bbcp_Fmsg("Xfr_Done", "File",
+	                bbcp_DebugMask(targpath, "path", DEBUGON),
+	                "changed since the copy completed; append not possible.");
+	      bbcp_Fmsg("Xfr_Done", "File",
+	                bbcp_DebugMask(targpath, "path", DEBUGON),
+	                "changed since the copy completed; copy restarting.");
        targetsz = 0;
        return 0;
       }
@@ -895,13 +975,17 @@ int bbcp_FileSpec::Xfr_Done()
 // The file exists, complain unless force or omit has been specified
 //
    if (!Force)
-      {if (bbcp_Config.Options & bbcp_OMIT)
-          {if (bbcp_Config.Options & bbcp_VERBOSE)
-              bbcp_Fmsg("Xfr_Done", "Skipping",targpath,"already exists.");
-           return 1;
-          }
-       return bbcp_Fmsg("Xfr_Done", "File",    targpath,"already exists.");
-      }
+	      {if (bbcp_Config.Options & bbcp_OMIT)
+	         {if (bbcp_Config.Options & bbcp_VERBOSE)
+	             bbcp_Fmsg("Xfr_Done", "Skipping",
+	                       bbcp_DebugMask(targpath, "path", DEBUGON),
+	                       "already exists.");
+	          return 1;
+	         }
+	      return bbcp_Fmsg("Xfr_Done", "File",
+	                       bbcp_DebugMask(targpath, "path", DEBUGON),
+	                       "already exists.");
+	     }
 
 // All done, we can try to copy this file
 //
@@ -971,11 +1055,13 @@ int bbcp_FileSpec::Xfr_Fixup()
 // Read the contents of the signature file asnd decode it
 //
    if ((infd = bbcp_Config.SecureOpen(targsigf, O_RDONLY, 0, 1, 1)) < 0)
-      return bbcp_Emsg("Xfr_Fixup", -errno, "opening file", targsigf);
+      return bbcp_Emsg("Xfr_Fixup", -errno, "opening file",
+                       bbcp_DebugMask(targsigf, "path", DEBUGON));
    TSigstream.Attach(infd);
    if (!(lp = TSigstream.GetLine()) || TSpec.Decode(lp,targsigf))
       return bbcp_Fmsg("Xfr_Fixup",
-                  "Unable to determine append state for", targetfn);
+                  "Unable to determine append state for",
+                  bbcp_DebugMask(targetfn, "path", DEBUGON));
 
 // Determine if the source file is still the same
 //
@@ -984,15 +1070,17 @@ int bbcp_FileSpec::Xfr_Fixup()
    ||  TSpec.Info.mtime  != Info.mtime
    ||  TSpec.Info.Otype  != Info.Otype
    ||  strcmp(TSpec.filename, filename))
-      {bbcp_Fmsg("Xfr_Fixup", "Source file '", filename, "' on", hostname,
+      {bbcp_Fmsg("Xfr_Fixup", "Source file",
+                 bbcp_DebugMask(filename, "path", DEBUGON), "on", hostname,
                  "appears to have changed after the previous copy ended.");
-       return bbcp_Fmsg("Xfr_Fixup", "Cannot append to ", targetfn);
+       return bbcp_Fmsg("Xfr_Fixup", "Cannot append to",
+                        bbcp_DebugMask(targetfn, "path", DEBUGON));
       }
 
 // Is the file sizes are identical then, finalize the copy now
 //
    if (Info.size == targetsz)
-      {bbcp_Fmsg("Xfr_Fixup", "File", targpath,
+      {bbcp_Fmsg("Xfr_Fixup", "File", bbcp_DebugMask(targpath, "path", DEBUGON),
                  "copy appears to have completed; finalizing copy now.");
        return (Finalize(0) ? -1 : 1);
       }
@@ -1000,6 +1088,7 @@ int bbcp_FileSpec::Xfr_Fixup()
 // Inform the person we will try to complete the copy
 //
    if (bbcp_Config.Options & bbcp_VERBOSE)
-      bbcp_Fmsg("Xfr_Fixup", "Will try to complete copying",targpath);
+      bbcp_Fmsg("Xfr_Fixup", "Will try to complete copying",
+                bbcp_DebugMask(targpath, "path", DEBUGON));
    return 0;
 }

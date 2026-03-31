@@ -259,7 +259,7 @@ int bbcp_Stream::Exec(char **parm, int inrd, int inerr)
 
     // Invoke the command never to return
     //
-    DEBUG("PATH=" <<getenv("PATH"));
+    DEBUG("PATH=" <<(getenv("PATH") ? "<redacted>" : "<unset>"));
     execvp(parm[0], parm);
     bbcp_Emsg("Exec", errno, "executing", parm[0], parm[1]);
     exit(255);

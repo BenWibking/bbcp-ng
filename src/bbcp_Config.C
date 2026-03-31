@@ -729,7 +729,7 @@ void bbcp_Config::Arguments(int argc, char **argv, int cfgfd)
           {bbcp_Emsg("Config",errno,"preparing restart directory",CKPdir);
            exit(100);
           }
-       DEBUG("Restart directory is " <<CKPdir);
+       DEBUG("Restart directory is " <<bbcp_DebugMask(CKPdir, "path", DEBUGON));
       }
    else if (CKPdir && Options & bbcp_APPEND && Options & bbcp_SNK)
       {if (EnsureSafeDir(CKPdir, 0700, 1))

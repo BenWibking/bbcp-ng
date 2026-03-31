@@ -25,7 +25,7 @@
 /* specific prior written permission of the institution or contributor.       */
 /******************************************************************************/
   
-/* bbcp provides a secure fast parallel copy utility. See bbcp_Config.C for
+/* bbcp provides a fast parallel copy utility. See bbcp_Config.C for
    the actual list of options. The general syntax is:
 
    bbcp [options] inspec outspec

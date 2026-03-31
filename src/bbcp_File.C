@@ -659,7 +659,7 @@ int bbcp_File::verChkSum(bbcp_FileChkSum *csP)
 
 // All done
 //
-   DEBUG(csP->csObj->Type() <<": '" <<bbcp_Config.csString <<"' "
+   DEBUG(csP->csObj->Type() <<": <checksum> "
          <<bbcp_DebugMask(iofn, "path", DEBUGON));
    return 0;
 }
