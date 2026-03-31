@@ -38,6 +38,11 @@ public:
 //
 pid_t     Fork();
 
+// Execute a command using a fixed system search path when no absolute path is
+// supplied. Returns only on failure with errno set.
+//
+int       Exec(char **argv, int scrubToken=1);
+
 // Convert a group name to a GID return -1 if failed.
 //
 gid_t      getGID(const char *group);

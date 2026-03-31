@@ -1114,11 +1114,19 @@ int bbcp_Protocol::SendArgs(bbcp_Node *Node, bbcp_FileSpec *fsp,
                             char *cbhost, int cbport, char *addOpt,
                             char *peerhost)
 {
-   char buff[512], *apnt[8];
+   char buff[512], tokbuff[64], *apnt[8];
    int alen[8], i = 0;
 
 // The remote program should be running at this point, setup the args
 //
+   if (bbcp_Config.SecToken && *bbcp_Config.SecToken)
+      {apnt[i] = tokbuff;
+       alen[i++] = snprintf(tokbuff, sizeof(tokbuff), "-Y %s ",
+                            bbcp_Config.SecToken);
+       if (alen[i-1] < 0 || alen[i-1] >= (int)sizeof(tokbuff))
+          return bbcp_Emsg("Protocol", -EOVERFLOW,
+                           "preparing security context for", Node->NodeName());
+      }
    if (bbcp_Config.CopyOpts)
       {apnt[i]   = bbcp_Config.CopyOpts;
        alen[i++] = strlen(bbcp_Config.CopyOpts);

@@ -30,6 +30,7 @@
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <grp.h>
 #include <limits.h>
 #include <pwd.h>
@@ -62,6 +63,40 @@
 
 extern bbcp_Config bbcp_Config;
 
+namespace
+{
+const char *bbcp_SafeExecPath[] = {
+   "/usr/bin",
+   "/bin",
+   "/usr/sbin",
+   "/sbin",
+   "/usr/local/bin",
+   "/opt/homebrew/bin",
+   0
+};
+
+int bbcp_ResolveExec(const char *cmd, char *buff, size_t blen)
+{
+   const char **pp;
+   int n;
+
+   if (!cmd || !*cmd) return -(errno = EINVAL);
+   if (strchr(cmd, '/'))
+      {if (strlen(cmd) >= blen) return -(errno = ENAMETOOLONG);
+       strcpy(buff, cmd);
+       return 0;
+      }
+
+   for (pp = bbcp_SafeExecPath; *pp; pp++)
+       {n = snprintf(buff, blen, "%s/%s", *pp, cmd);
+        if (n < 0 || n >= (int)blen) continue;
+        if (!access(buff, X_OK)) return 0;
+       }
+
+   return -(errno = ENOENT);
+}
+}
+
 
 /******************************************************************************/
 /*                           C o n s t r u c t o r                            */
@@ -92,6 +127,22 @@ pid_t bbcp_System::Fork()
    if (pid == 0) bbcp_Debug.mypid = getpid();
 
    return pid;
+}
+
+/******************************************************************************/
+/*                                  E x e c                                   */
+/******************************************************************************/
+
+int bbcp_System::Exec(char **argv, int scrubToken)
+{
+   char execPath[PATH_MAX+1];
+   int rc;
+
+   if (!argv || !argv[0]) return -(errno = EINVAL);
+   if ((rc = bbcp_ResolveExec(argv[0], execPath, sizeof(execPath)))) return rc;
+   if (scrubToken) unsetenv("BBCP_SECTOKEN");
+   execv(execPath, argv);
+   return -errno;
 }
 
 /******************************************************************************/

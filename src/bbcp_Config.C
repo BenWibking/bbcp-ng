@@ -235,7 +235,7 @@ bbcp_Config::bbcp_Config()
    IDfn      = 0;
    TimeLimit = 0;
    MTLevel   = 0;
-   csOpts    = 0;
+   csOpts    = bbcp_csDashE|bbcp_csLink;
    csSize    = 32;
    csType    = bbcp_csSHA256;
    csSpec    = 0;
@@ -784,7 +784,7 @@ H("-c lvl  compress data before sending across the network (default lvl is 1).")
 H("-C cfn  process the named configuration file at time of encounter.")
 H("-d path requests relative source path addressing and target path creation.")
 H("-D      turns on debugging.")
-H("-e      error check data for transmission errors using sha256 checksum.")
+H("-e      enable sha256 link checksums (default).")
 H("-E csa  specify checksum alorithm and optionally report or verify checksum.")
 H("        csa: [%]{sha256}[=[<value> | <outfile>]]")
 H("-f      forces the copy by first unlinking the target file before copying.")
@@ -1102,8 +1102,10 @@ void bbcp_Config::Config_Ctl(int rwbsz)
    if (Options & (bbcp_RXONLY|bbcp_RDONLY))    Add_Opt('+');
    CopyOpts = strdup(cbuff);
 
-// Pass the session token through the environment so remote peer launches do
-// not expose it via argv.
+// Keep the session token in the local environment so child bbcp processes can
+// inherit it when the caller explicitly forwards the environment. Remote peer
+// launches receive the token over the stdin control channel to avoid argv
+// exposure in the local ssh process list.
 //
    if (setenv(bbcp_SecTokenEnv, SecToken, 1))
       {bbcp_Emsg("Config", errno, "exporting session token");

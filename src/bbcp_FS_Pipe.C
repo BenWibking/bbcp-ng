@@ -117,8 +117,7 @@ bbcp_File *bbcp_FS_Pipe::Exec(const char *prog, const char *fa, int opts)
 
 // Invoke the command never to return
 //
-   execvp(Args.Vec[0], Args.Vec);
-   rc = errno;
+   rc = -bbcp_OS.Exec(Args.Vec);
    write(gildes[1], &rc, sizeof(rc));
    exit(255);
    return 0;
