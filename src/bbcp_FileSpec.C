@@ -562,6 +562,7 @@ int bbcp_FileSpec::Finalize(int retc)
 
 int bbcp_FileSpec::FinalizeX(int retc, int setMode)
 {
+   int fd;
 
 // If an error occured, see what we should do
 //
@@ -570,8 +571,15 @@ int bbcp_FileSpec::FinalizeX(int retc, int setMode)
        FSp->RM(targpath);
       }
       else if (setMode)
-              {if (bbcp_Config.Options & bbcp_PCOPY) setStat(bbcp_Config.Mode);
-                  else FSp->setMode(targpath, bbcp_Config.Mode);
+              {if ((fd = bbcp_Config.SecureOpen(targpath, O_RDONLY, 0, 0, 0)) < 0)
+                  {bbcp_Emsg("Finalize", errno, "opening", targpath);
+                   retc = errno;
+                  }
+                  else
+                  {if (bbcp_Config.Options & bbcp_PCOPY) setStatFD(fd, bbcp_Config.Mode);
+                      else FSp->setModeFD(fd, bbcp_Config.Mode);
+                   if (close(fd) && !retc) retc = errno;
+                  }
               }
 
 // Delete the signature file if one exists

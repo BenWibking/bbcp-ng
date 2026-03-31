@@ -115,10 +115,16 @@ int bbcp_OpenMetaTarget(const char *path)
 int bbcp_OpenParentDir(const char *path, char *leaf, size_t llen)
 {
    char dirbuf[MAXPATHLEN+1];
-   int fd, rc;
+   int fd, opts = O_RDONLY, rc;
 
    if ((rc = bbcp_SplitPathLocal(path, dirbuf, sizeof(dirbuf), leaf, llen))) return rc;
-   do {fd = open(dirbuf, O_RDONLY);}
+#ifdef O_DIRECTORY
+   opts |= O_DIRECTORY;
+#endif
+#ifdef O_NOFOLLOW
+   opts |= O_NOFOLLOW;
+#endif
+   do {fd = open(dirbuf, opts);}
       while(fd < 0 && errno == EINTR);
    if (fd < 0) return -errno;
    return fd;
@@ -243,9 +249,40 @@ long long bbcp_FS_Unix::getSize(int fd, long long *bsz)
 
 int bbcp_FS_Unix::MKDir(const char *path, mode_t mode)
 {
-    if (mkdir(path, mode)) return -errno;
+    char leaf[MAXPATHLEN+1];
+    int dfd, fd, rc;
 
-    if (chmod(path, 0755)) return -errno;
+    if ((dfd = bbcp_OpenParentDir(path, leaf, sizeof(leaf))) < 0) return dfd;
+#if defined(AT_FDCWD)
+    do {rc = mkdirat(dfd, leaf, mode);}
+       while(rc && errno == EINTR);
+#else
+    rc = mkdir(path, mode);
+#endif
+    if (rc)
+       {rc = -errno;
+        close(dfd);
+        return rc;
+       }
+#if defined(AT_FDCWD)
+#ifdef O_NOFOLLOW
+    do {fd = openat(dfd, leaf, O_RDONLY|O_NOFOLLOW);}
+#else
+    do {fd = openat(dfd, leaf, O_RDONLY);}
+#endif
+       while(fd < 0 && errno == EINTR);
+    if (fd < 0)
+       {rc = -errno;
+        close(dfd);
+        return rc;
+       }
+    if (fchmod(fd, 0755)) rc = -errno;
+    if (close(fd) && !rc) rc = -errno;
+#else
+    if (chmod(path, 0755)) rc = -errno;
+#endif
+    if (close(dfd) && !rc) rc = -errno;
+    if (rc) return rc;
 
     return 0;
 }
@@ -256,7 +293,19 @@ int bbcp_FS_Unix::MKDir(const char *path, mode_t mode)
 
 int bbcp_FS_Unix::MKLnk(const char *ldata, const char *path)
 {
-    if (symlink(ldata, path)) return -errno;
+    char leaf[MAXPATHLEN+1];
+    int dfd, rc;
+
+    if ((dfd = bbcp_OpenParentDir(path, leaf, sizeof(leaf))) < 0) return dfd;
+#if defined(AT_FDCWD)
+    do {rc = symlinkat(ldata, dfd, leaf);}
+       while(rc && errno == EINTR);
+#else
+    rc = symlink(ldata, path);
+#endif
+    if (rc) rc = -errno;
+    if (close(dfd) && !rc) rc = -errno;
+    if (rc) return rc;
 
     return 0;
 }
