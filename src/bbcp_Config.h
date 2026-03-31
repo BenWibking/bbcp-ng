@@ -134,7 +134,8 @@ int   ConfigInit(int argc, char **argv);
 int   Configure(const char *cfn);
 void  Display();
 int   EnsureSafeDir(const char *path, mode_t mode, int create);
-int   SecureOpen(const char *path, int flags, mode_t mode=0, int requireSafeDir=0);
+int   SecureOpen(const char *path, int flags, mode_t mode=0, int requireSafeDir=0,
+                 int requireRegular=0);
 int   SecureReplace(const char *path, const char *data, size_t dlen, mode_t mode,
                     int requireSafeDir=0);
 int   SecureUnlink(const char *path, int requireSafeDir=0);
