@@ -64,6 +64,68 @@
 #endif
 
 /******************************************************************************/
+/*                         L o c a l   H e l p e r s                          */
+/******************************************************************************/
+
+namespace
+{
+int bbcp_SplitPathLocal(const char *path, char *dirbuf, size_t dlen,
+                        char *filebuf, size_t flen)
+{
+   const char *slash;
+   size_t dirlen, filelen;
+
+   if (!path || !*path) return -(errno = EINVAL);
+   slash = strrchr(path, '/');
+   if (!slash)
+      {dirlen  = 1;
+       filelen = strlen(path);
+       if (dirlen+1 > dlen || filelen+1 > flen) return -(errno = ENAMETOOLONG);
+       memcpy(dirbuf,  ".", dirlen+1);
+       memcpy(filebuf, path, filelen+1);
+       return 0;
+      }
+
+   filelen = strlen(slash+1);
+   dirlen  = slash-path;
+   if (!dirlen) dirlen = 1;
+   if (dirlen+1 > dlen || filelen+1 > flen) return -(errno = ENAMETOOLONG);
+   if (slash == path) memcpy(dirbuf, "/", dirlen);
+      else memcpy(dirbuf, path, dirlen);
+   dirbuf[dirlen] = '\0';
+   memcpy(filebuf, slash+1, filelen+1);
+   return 0;
+}
+
+int bbcp_OpenMetaTarget(const char *path)
+{
+   int fd, opts = O_RDONLY;
+
+#ifdef O_NONBLOCK
+   opts |= O_NONBLOCK;
+#endif
+#ifdef O_NOFOLLOW
+   opts |= O_NOFOLLOW;
+#endif
+   do {fd = open(path, opts);}
+      while(fd < 0 && errno == EINTR);
+   return fd;
+}
+
+int bbcp_OpenParentDir(const char *path, char *leaf, size_t llen)
+{
+   char dirbuf[MAXPATHLEN+1];
+   int fd, rc;
+
+   if ((rc = bbcp_SplitPathLocal(path, dirbuf, sizeof(dirbuf), leaf, llen))) return rc;
+   do {fd = open(dirbuf, O_RDONLY);}
+      while(fd < 0 && errno == EINTR);
+   if (fd < 0) return -errno;
+   return fd;
+}
+}
+
+/******************************************************************************/
 /*                        G l o b a l   O b j e c t s                         */
 /******************************************************************************/
 
@@ -249,8 +311,18 @@ bbcp_File *bbcp_FS_Unix::Open(const char *fn, int opts, int mode, const char *fa
   
 int bbcp_FS_Unix::RM(const char *path)
 {
-    if (!remove(path)) return 0;
-    return -errno;
+    char leaf[MAXPATHLEN+1];
+    int dfd, rc, ecode = 0;
+
+    if ((dfd = bbcp_OpenParentDir(path, leaf, sizeof(leaf))) < 0) return dfd;
+    do {rc = unlinkat(dfd, leaf, 0);}
+       while(rc && errno == EINTR);
+    if (rc && (errno == EISDIR || errno == EPERM))
+       do {rc = unlinkat(dfd, leaf, AT_REMOVEDIR);}
+          while(rc && errno == EINTR);
+    if (rc) ecode = errno;
+    if (close(dfd) && !ecode) ecode = errno;
+    return (ecode ? -ecode : 0);
 }
 
 /******************************************************************************/
@@ -259,17 +331,12 @@ int bbcp_FS_Unix::RM(const char *path)
   
 int bbcp_FS_Unix::setGroup(const char *path, const char *Group)
 {
-    gid_t gid;
+    int fd, rc;
 
-// Convert the group name to a gid
-//
-   if (!Group || !Group[0]) return 0;
-   gid = bbcp_OS.getGID(Group);
-
-// Set the group code and return
-//
-   if (chown(path, (uid_t)-1, gid)) return -errno;
-   return 0;
+   if ((fd = bbcp_OpenMetaTarget(path)) < 0) return -errno;
+   rc = setGroupFD(fd, Group);
+   if (close(fd) && !rc) rc = -errno;
+   return rc;
 }
 
 int bbcp_FS_Unix::setGroupFD(int fd, const char *Group)
@@ -288,8 +355,12 @@ int bbcp_FS_Unix::setGroupFD(int fd, const char *Group)
   
 int bbcp_FS_Unix::setMode(const char *path, mode_t mode)
 {
-    if (chmod(path, mode)) return -errno;
-    return 0;
+    int fd, rc;
+
+    if ((fd = bbcp_OpenMetaTarget(path)) < 0) return -errno;
+    rc = setModeFD(fd, mode);
+    if (close(fd) && !rc) rc = -errno;
+    return rc;
 }
 
 int bbcp_FS_Unix::setModeFD(int fd, mode_t mode)
@@ -304,12 +375,12 @@ int bbcp_FS_Unix::setModeFD(int fd, mode_t mode)
   
 int bbcp_FS_Unix::setTimes(const char *path, time_t atime, time_t mtime)
 {
-    struct utimbuf ftimes;
+    int fd, rc;
 
-    ftimes.actime = atime;
-    ftimes.modtime= mtime;
-    if (utime(path, &ftimes)) return -errno;
-    return 0;
+    if ((fd = bbcp_OpenMetaTarget(path)) < 0) return -errno;
+    rc = setTimesFD(fd, atime, mtime);
+    if (close(fd) && !rc) rc = -errno;
+    return rc;
 }
 
 int bbcp_FS_Unix::setTimesFD(int fd, time_t atime, time_t mtime)

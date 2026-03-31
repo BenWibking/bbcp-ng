@@ -28,7 +28,9 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include "bbcp_Config.h"
 #include "bbcp_Emsg.h"
@@ -55,6 +57,31 @@ extern bbcp_BuffPool bbcp_CPool;
 extern bbcp_Network  bbcp_Net;
 
 extern bbcp_System   bbcp_OS;
+
+namespace
+{
+const char *bbcp_DebugExecArg(const char *arg)
+{
+   static const char *tokVar = "BBCP_SECTOKEN=";
+
+   if (!arg) return "";
+   if (!strncmp(arg, tokVar, strlen(tokVar))) return "BBCP_SECTOKEN=[redacted]";
+   return arg;
+}
+
+void bbcp_DebugPutSummary(char *data[], int dlen[], int &parts, int &bytes)
+{
+   int i = 0;
+
+   parts = 0;
+   bytes = 0;
+   while(data[i])
+        {if (dlen[i] > 0) bytes += dlen[i];
+         parts++;
+         i++;
+        }
+}
+}
  
 /******************************************************************************/
 /*            E x t e r n a l   T h r e a d   I n t e r f a c e s             */
@@ -143,7 +170,8 @@ char *bbcp_Node::GetLine()
 {
    char *lp = NStream.GetLine();
 
-   DEBUG("Received from " <<nodename <<": " <<lp <<endl);
+   DEBUG("Received control data from " <<nodename <<"; bytes="
+         <<(lp ? (int)strlen(lp) : 0) <<endl);
 
    return lp;
 }
@@ -157,11 +185,10 @@ int bbcp_Node::Put(char *data[], int dlen[])
    static bbcp_Mutex putMutex;
 
    if (DEBUGON)
-      {int i= 0;
-       cerr <<"bbcp_" <<bbcp_Debug.Who <<": Sending to " <<nodename <<": ";
-       while(data[i])if (*data[i]) cerr <<data[i++];
-                        else i++;
-       cerr <<endl;
+      {int bytes, parts;
+       bbcp_DebugPutSummary(data, dlen, parts, bytes);
+       cerr <<"bbcp_" <<bbcp_Debug.Who <<": Sending control data to "
+            <<nodename <<"; parts=" <<parts <<" bytes=" <<bytes <<endl;
       }
 
    if (bbcp_Config.Options & bbcp_SRC) return NStream.Put(data, dlen);
@@ -256,7 +283,7 @@ int bbcp_Node::Run(char *user, char *host, char *prog, char *parg)
    if (DEBUGON)
       {int i;
        cerr <<"bbcp_" <<bbcp_Debug.Who <<": Running as pid " <<NStream.getPID() <<": ";
-       for (i = 0; i < numa; i++) if (Argv[i]) cerr <<Argv[i] <<' ';
+       for (i = 0; i < numa; i++) if (Argv[i]) cerr <<bbcp_DebugExecArg(Argv[i]) <<' ';
        cerr <<endl;
       }
 
@@ -384,7 +411,7 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
           bbcp_Fmsg("RecvFile","Appending to",Path,"at offset",buff);
          }
          else bbcp_Fmsg("RecvFile", "Creating", Path);
-      else DEBUG("Receiving " <<fp->pathname <<" as " <<Path <<" offset=" <<startoff);
+      else DEBUG("Receiving file data; offset=" <<startoff);
 
 // Receive the file in a sub-process so that we don't muck with this one
 //
@@ -494,20 +521,20 @@ int bbcp_Node::RecvFile(bbcp_FileSpec *fp, bbcp_Node *Remote)
 // Make sure that all of the bytes were transfered
 //
    if (!retc && strncmp(Path, "/dev/null/", 10))
-      {bbcp_FileInfo Info;
-       if ((retc = fp->FSys()->Stat(Path, &Info)) < 0)
-          {retc = -retc;
+      {struct stat stbuff;
+       if (fstat(outFile->ioFD(), &stbuff))
+          {retc = errno;
            bbcp_Emsg("RecvFile", retc, "finding", Path);
           }
-          else if (Info.size != fp->Info.size && Info.mode
+          else if (stbuff.st_size != fp->Info.size && stbuff.st_mode
                &&  !(bbcp_Config.Options & bbcp_NOFSZCHK))
-                  {const char *What = (Info.size < fp->Info.size
+                  {const char *What = (stbuff.st_size < fp->Info.size
                                     ?  "Not all" : "Too much");
                    retc = 29;
                    bbcp_Fmsg("RecvFile",What,"data was transfered for",Path);
-                   DEBUG("src size=" <<fp->Info.size <<" snk size=" <<Info.size);
+                   DEBUG("src size=" <<fp->Info.size <<" snk size=" <<stbuff.st_size);
                   }
-      } DEBUG("Outfile " <<Path <<" closed");
+      } DEBUG("Output file closed");
 
 // Report detailed I/O stats, if so wanted
 //
@@ -563,7 +590,7 @@ int bbcp_Node::SendFile(bbcp_FileSpec *fp)
 
 // Send the file in a sub-process so that we don't muck with this one
 //
-   DEBUG("Sending file " <<fp->targpath <<"; offset=" <<fp->targetsz);
+   DEBUG("Sending file data; offset=" <<fp->targetsz);
    if ((Child[0] = bbcp_OS.Fork()) < 0)
       return bbcp_Emsg("SendFile", errno, "forking to send", fp->pathname);
    if (Child[0])
